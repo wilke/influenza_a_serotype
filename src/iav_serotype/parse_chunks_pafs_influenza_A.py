@@ -7,13 +7,8 @@ import os
 import argparse
 import tempfile
 
-def process_qname_group(temp_file, flu_info_df, score_thresh):
-    """Process a temporary file containing rows with the same qname."""
-    group_df = pd.read_csv(temp_file, sep="\t", header=None, names=[
-        "qname", "qlength", "qstart", "qend", "strand",
-        "tname", "tlength", "tstart", "tend",
-        "num_matches", "align_length", "mapq"
-    ])
+def process_qname_group(group_df, flu_info_df, score_thresh):
+    """Process a DataFrame containing rows with the same qname."""
     merge_df = pd.merge(group_df, flu_info_df, left_on="tname", right_on="accession")
     assignment_df = (merge_df.groupby(["qname", "tname", "serotype", "segment", "strand"])
                      .agg(tot_read_length=("qlength", "sum"),
@@ -48,8 +43,12 @@ def main():
 
     # Initialize variables
     current_qname = None
-    temp_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t")
+    buffer = []
     assignment_dfs = []
+
+    paf_cols = ["qname", "qlength", "qstart", "qend", "strand",
+                "tname", "tlength", "tstart", "tend",
+                "num_matches", "align_length", "mapq"]
 
     # Process the PAF file line by line
     with open(paf_file, "r") as paf:
@@ -58,21 +57,20 @@ def main():
             if current_qname is None:
                 current_qname = qname
 
-            # If qname changes, process the temporary file
             if qname != current_qname:
-                temp_file.close()
-                assignment_dfs.append(process_qname_group(temp_file.name, flu_info_df, score_thresh))
-                os.unlink(temp_file.name)  # Delete the temporary file
-                temp_file = tempfile.NamedTemporaryFile(delete=False, mode="w+t")
+                # Process the buffer
+                group_df = pd.DataFrame(buffer, columns=paf_cols)
+                assignment_dfs.append(process_qname_group(group_df, flu_info_df, score_thresh))
+                buffer = []  # Clear the buffer
                 current_qname = qname
 
-            # Write the current line to the temporary file
-            temp_file.write(line)
+            # Add the current line to the buffer
+            buffer.append(line.strip().split("\t"))
 
-    # Process the last group
-    temp_file.close()
-    assignment_dfs.append(process_qname_group(temp_file.name, flu_info_df, score_thresh))
-    os.unlink(temp_file.name)
+        # Process the last buffer
+        if buffer:
+            group_df = pd.DataFrame(buffer, columns=paf_cols)
+            assignment_dfs.append(process_qname_group(group_df, flu_info_df, score_thresh))
 
     # Combine all processed groups
     assignment_df = pd.concat(assignment_dfs)
