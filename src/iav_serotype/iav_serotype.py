@@ -211,6 +211,10 @@ def iav_serotype():
                             dest="READ_FMT", type=str, choices=['short_paired', 'long'], default='short_paired',
                             help='default = short_paired. short_paired must provide 2 .fastq files.')
 
+    optional_args.add_argument("--dereplicate", 
+                            dest="DEREP", type=str2bool, default='False',
+                            help='True or False. Dereplicate reads with seqkit')
+
     optional_args.add_argument("--db", 
                             dest="DB", type=str, default='default',
                             help='path to sequence database. If not set, iav_serotype looks for environmental \
@@ -523,9 +527,23 @@ def iav_serotype():
 
 
 
-    ### run the R script for parsing and assignment ###
-    Rprocess = Popen(['Rscript', 
-                     str(f'{iavs_script_path}/parse_pafs_influenza_A.R'), 
+    # ### run the R script for parsing and assignment ###
+    # Rprocess = Popen(['Rscript', 
+    #                  str(f'{iavs_script_path}/parse_pafs_influenza_A.R'), 
+    #                  str(f'{args.DB}/Influenza_A_segment_info1.tsv'), 
+    #                  str(paf_file), 
+    #                  str(args.SAMPLE), 
+    #                  samp_out_dir,
+    #                  str(args.THRESH)],
+    #                 stdout=PIPE, stderr=STDOUT)
+
+    # with Rprocess.stdout:
+    #     log_subprocess_output(Rprocess.stdout)
+    # exitcode = Rprocess.wait()
+
+    ### run the Python script for parsing and assignment ###
+    Rprocess = Popen(['python', 
+                     str(f'{iavs_script_path}/parse_pafs_influenza_A.py'), 
                      str(f'{args.DB}/Influenza_A_segment_info1.tsv'), 
                      str(paf_file), 
                      str(args.SAMPLE), 
