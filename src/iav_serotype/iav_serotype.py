@@ -543,7 +543,7 @@ def iav_serotype():
 
     ### run the Python script for parsing and assignment ###
     Rprocess = Popen(['python', 
-                     str(f'{iavs_script_path}/parse_pafs_influenza_A.py'), 
+                     str(f'{iavs_script_path}/parse_chunks_pafs_influenza_A.py'), 
                      str(f'{args.DB}/Influenza_A_segment_info1.tsv'), 
                      str(paf_file), 
                      str(args.SAMPLE), 
