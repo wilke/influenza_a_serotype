@@ -5,7 +5,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 import argparse
-import tempfile
 
 def process_qname_group(group_df, flu_info_df, score_thresh):
     """Process a DataFrame containing rows with the same qname."""
@@ -27,6 +26,8 @@ def main():
     parser.add_argument("sample_name", help="Sample name")
     parser.add_argument("out_dir", help="Output directory")
     parser.add_argument("score_threshold", type=float, help="Score threshold")
+    parser.add_argument("--buffer_size", type=int, default=1000, help="Buffer size for unique qname values")
+    parser.add_argument("--write_individual_assignments", action="store_true", help="Write individual read assignments")
     args = parser.parse_args()
 
     flu_info_db = args.flu_info_db
@@ -34,6 +35,8 @@ def main():
     sample_name = args.sample_name
     out_dir = args.out_dir
     score_thresh = args.score_threshold
+    buffer_size = args.buffer_size
+    write_individual_assignments = args.write_individual_assignments
 
     # Read flu info database
     flu_info_df = pd.read_csv(flu_info_db, sep="\t", header=0)
@@ -42,8 +45,8 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
 
     # Initialize variables
-    current_qname = None
     buffer = []
+    unique_qnames = set()
     assignment_dfs = []
 
     paf_cols = ["qname", "qlength", "qstart", "qend", "strand",
@@ -53,19 +56,19 @@ def main():
     # Process the PAF file line by line
     with open(paf_file, "r") as paf:
         for line in paf:
-            qname = line.split("\t")[0]
-            if current_qname is None:
-                current_qname = qname
+            row = line.strip().split("\t")
+            qname = row[0]
 
-            if qname != current_qname:
-                # Process the buffer
+            # Add the row to the buffer
+            buffer.append(row)
+            unique_qnames.add(qname)
+
+            # If buffer contains buffer_size unique qnames, process it
+            if len(unique_qnames) >= buffer_size:
                 group_df = pd.DataFrame(buffer, columns=paf_cols)
                 assignment_dfs.append(process_qname_group(group_df, flu_info_df, score_thresh))
                 buffer = []  # Clear the buffer
-                current_qname = qname
-
-            # Add the current line to the buffer
-            buffer.append(line.strip().split("\t"))
+                unique_qnames = set()  # Reset the unique qname tracker
 
         # Process the last buffer
         if buffer:
@@ -109,9 +112,10 @@ def main():
     plt.savefig(f"{out_dir}/{sample_name}_read_serotype_assignment.pdf")
 
     # Write individual read assignments
-    for read_assignment, group in sum_df.groupby("read_assignment"):
-        group[["qname"]].to_csv(f"{out_dir}/{sample_name}_{read_assignment}.txt",
-                                sep="\t", index=False, header=False)
+    if write_individual_assignments:
+        for read_assignment, group in sum_df.groupby("read_assignment"):
+            group[["qname"]].to_csv(f"{out_dir}/{sample_name}_{read_assignment}.txt",
+                                    sep="\t", index=False, header=False)
 
 if __name__ == "__main__":
     main()
