@@ -293,8 +293,8 @@ def iav_serotype():
 
     logger.info(f"read format : {str(args.READ_FMT)}")
 
-
-    completedProc = subprocess.run(['Rscript', str(iavs_script_path) + '/check_R_libraries1.R'])
+    # check for required tools - uncomment for python version of R script
+    # completedProc = subprocess.run(['Rscript', str(iavs_script_path) + '/check_R_libraries1.R'])
 
     #print(completedProc.returncode)
     if completedProc.returncode != 0 :
