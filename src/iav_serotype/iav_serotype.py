@@ -297,12 +297,12 @@ def iav_serotype():
     # completedProc = subprocess.run(['Rscript', str(iavs_script_path) + '/check_R_libraries1.R'])
 
     #print(completedProc.returncode)
-    if completedProc.returncode != 0 :
-        logger.warning("some required R packages are not found. Required:")
-        logger.warning("dplyr, data.table, stringr, ggplot2")
-        logger.warning("Did you activate the conda environment?")
-        logger.warning("see yml. Exiting")
-        quit()
+    # if completedProc.returncode != 0 :
+    #     logger.warning("some required R packages are not found. Required:")
+    #     logger.warning("dplyr, data.table, stringr, ggplot2")
+    #     logger.warning("Did you activate the conda environment?")
+    #     logger.warning("see yml. Exiting")
+    #     quit()
 
 
 
