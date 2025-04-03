@@ -1,4 +1,4 @@
-name: iav_serotype
+name: iav
 channels:
   - conda-forge
   - bioconda
