@@ -76,6 +76,7 @@ def process_qname_group(group_df, flu_info_df, score_thresh, paired_reads=False,
             "segment": "first"
         }).reset_index()
         
+
         # Store original counts for each qname to ensure accurate n values
         qname_counts = {}
         for qname in top_df['qname'].unique():
@@ -88,6 +89,8 @@ def process_qname_group(group_df, flu_info_df, score_thresh, paired_reads=False,
                  avg_score=("top_score", "mean"),
                  distinct_serotypes=("serotype", lambda x: len(set(x))),
                  distinct_segments=("segment", lambda x: len(set(x)))))
+        
+        logging.debug(f"Distinct serotypes and segments DataFrame:\n{sum_df.head()}")
             
         # Create a dictionary to store segment lists for each qname
         segment_lists = {}
@@ -95,9 +98,9 @@ def process_qname_group(group_df, flu_info_df, score_thresh, paired_reads=False,
             segments = sorted(list(set(top_df[top_df['qname'] == qname]['segment'])))
             segment_lists[qname] = str(segments) if len(segments) > 1 else segments[0] if segments else "ambiguous"
         
-        # Debug the segment lists
-        for qname, segments in segment_lists.items():
-            logging.debug(f"Segments for {qname}: {segments}")
+        # # Debug the segment lists
+        # for qname, segments in segment_lists.items():
+        #     logging.debug(f"Segments for {qname}: {segments}")
         
         # Create a dictionary to store serotypes for each qname
         serotype_dict = {}
@@ -107,7 +110,7 @@ def process_qname_group(group_df, flu_info_df, score_thresh, paired_reads=False,
         
         # Assign read_assignment based on distinct_serotypes and distinct_segments
         sum_df = (sum_df.assign(read_assignment=lambda x: np.where(
-                  (x["distinct_serotypes"] == 1) & (x["distinct_segments"] == 1),
+                  (x["distinct_serotypes"] == 1),
                   x.index.map(lambda idx: serotype_dict[idx]),
                   x.index.map(lambda idx: segment_lists[idx])))
               .query("top_score >= @score_thresh")
@@ -116,12 +119,12 @@ def process_qname_group(group_df, flu_info_df, score_thresh, paired_reads=False,
         # Merge with serotype and segment information
         sum_df = sum_df.reset_index().merge(qname_serotype_segment, on="qname")
         
-        # Fix the n values for all qnames to match their original counts
-        for qname, original_count in qname_counts.items():
-            if qname in sum_df['qname'].values:
-                current_n = sum_df.loc[sum_df['qname'] == qname, 'n'].iloc[0]
-                if original_count != current_n:
-                    sum_df.loc[sum_df['qname'] == qname, 'n'] = original_count
+        # # Fix the n values for all qnames to match their original counts
+        # for qname, original_count in qname_counts.items():
+        #     if qname in sum_df['qname'].values:
+        #         current_n = sum_df.loc[sum_df['qname'] == qname, 'n'].iloc[0]
+        #         if original_count != current_n:
+        #             sum_df.loc[sum_df['qname'] == qname, 'n'] = original_count
       
         logging.debug(f"Assignment DataFrame after merging top scores:\n{sum_df.head()}")
         
@@ -163,8 +166,8 @@ def process_qname_group(group_df, flu_info_df, score_thresh, paired_reads=False,
         logging.debug(f"Final assignment DataFrame:\n{assignment_df.head()}")
 
         # Log debug information but don't exit
-        if debug:
-            logging.debug("Debug mode is enabled. Continuing execution.")
+        # if debug:
+        #     logging.debug("Debug mode is enabled. Continuing execution.")
 
         logging.debug(f"Finished processing group with {len(assignment_df)} rows.")
         return sum_df
@@ -230,6 +233,9 @@ def main():
 
             # If buffer contains buffer_size unique qnames, process it
             if len(unique_qnames) >= buffer_size:
+                # get start time
+                start = pd.Timestamp.now()
+
                 logging.info(f"Processing buffer with {len(buffer)} rows and {len(unique_qnames)} unique qnames.")
                 group_df = pd.DataFrame(buffer, columns=paf_cols)
                 assignment_dfs.append(process_qname_group(
@@ -240,6 +246,11 @@ def main():
                     args.debug))
                 buffer = []  # Clear the buffer
                 unique_qnames = set()  # Reset the unique qname tracker
+
+                # get stop time
+                stop = pd.Timestamp.now()
+                elapsed_time = stop - start
+                logging.info(f"Buffer processed {elapsed_time}. Resetting for next batch.")
 
         # Process the last buffer
         if buffer:
