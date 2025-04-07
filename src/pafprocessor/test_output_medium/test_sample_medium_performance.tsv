@@ -1,0 +1,41 @@
+operation	duration_ms
+ReadPAFFile chunk 4	0
+ReadPAFFile chunk 15	0
+Worker 5 total	6
+Worker 2 total	6
+ReadPAFFile chunk 17	0
+ReadPAFFile chunk 7	0
+ReadPAFFile chunk 12	0
+ReadPAFFile chunk 2	0
+ReadPAFFile chunk 5	0
+ReadPAFFile setup	0
+Worker 7 total	7
+ReadPAFFile chunk 19	0
+ReadPAFFile chunk 11	0
+Worker 6 total	6
+Worker 7 processed chunk	0
+ReadPAFFile chunk 8	0
+ProcessAllChunks	7
+Worker 1 processed chunk	0
+ReadPAFFile chunk 14	0
+ReadPAFFile chunk 20	0
+Worker 4 processed chunk	0
+ReadPAFFile chunk 16	0
+Worker 2 processed chunk	0
+ReadPAFFile chunk 9	0
+ProcessChunk	0
+Worker 0 processed chunk	0
+Worker 3 processed chunk	0
+ReadPAFFile chunk 10	0
+Worker 1 total	6
+Worker 6 processed chunk	0
+Worker 5 processed chunk	0
+ReadPAFFile chunk 3	0
+ReadPAFFile chunk 6	0
+ReadPAFFile chunk 13	0
+ReadPAFFile chunk 1	1
+ReadPAFFile chunk 18	0
+Worker 4 total	7
+ReadMappingFile	565
+Worker 3 total	6
+Worker 0 total	6

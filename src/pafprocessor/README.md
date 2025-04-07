@@ -33,14 +33,36 @@ This tool reads a PAF file and a TSV mapping file, processes the records in para
 - `--log-level`: Log level (debug, info, warn, error) (default: "info")
 - `--workers`: Number of worker goroutines (default: number of CPUs)
 - `--chunk-size`: Number of PAF entries per chunk (default: 1000)
+- `--r-algorithm`: Use R-compatible algorithm for read assignment (default: false)
 - `--cpu-profile`: Write CPU profile to file
 - `--mem-profile`: Write memory profile to file
 - `--log-file`: Path to log file
-
 ## Example
 
 ```bash
 ./pafprocessor --mapping DBs/v1.25/Influenza_A_segment_info1.tsv --paf test_data/small_test.paf --output results --sample test_sample
+```
+
+### Using the R-compatible Algorithm
+
+To use the algorithm that matches the R implementation (parse_pafs_influenza_A.R):
+
+```bash
+./pafprocessor --mapping DBs/v1.25/Influenza_A_segment_info1.tsv --paf test_data/small_test.paf --output results --sample test_sample --r-algorithm
+```
+
+The R-compatible algorithm differs from the default Go implementation in two key ways:
+
+1. **Alignment Score Calculation**:
+   - R algorithm: `align_score = ANI * AF` (where ANI is the alignment identity and AF is the alignment fraction)
+   - Default Go algorithm: `alignScore = NumMatches / AlignLength`
+
+2. **Read Assignment Logic**:
+   - R algorithm: Takes the top 2 scores and assigns the read to the top serotype if either:
+     - All top serotypes are the same, OR
+     - The difference between the top score and second score is less than 0.003
+     - Otherwise, it assigns "ambiguous"
+   - Default Go algorithm: Assigns the read to the serotype if all filtered serotypes are the same, otherwise "ambiguous"
 ```
 
 ## Output

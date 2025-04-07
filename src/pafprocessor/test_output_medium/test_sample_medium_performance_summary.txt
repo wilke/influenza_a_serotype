@@ -1,0 +1,53 @@
+PAF Processor Performance Summary
+================================
+
+Sample: test_sample_medium
+PAF file: ../../test_data/medium_test_20000.paf
+Mapping file: ../../DBs/v1.25/Influenza_A_segment_info1.tsv
+Number of workers: 8
+Chunk size: 1000
+
+Total execution time: 574.227417ms
+
+Performance Metrics:
+  Worker 0 processed chunk: 579.334µs
+  ReadPAFFile chunk 14: 262.292µs
+  ReadPAFFile chunk 5: 265.25µs
+  ReadPAFFile chunk 6: 258.583µs
+  Worker 6 processed chunk: 746.542µs
+  Worker 2 total: 6.791875ms
+  ReadPAFFile chunk 19: 271.459µs
+  GenerateResults: 929.167µs
+  ReadPAFFile setup: 88.416µs
+  Worker 7 processed chunk: 609.125µs
+  ReadPAFFile chunk 7: 262.209µs
+  ReadPAFFile chunk 20: 270.5µs
+  Worker 4 total: 7.456292ms
+  ReadPAFFile chunk 10: 278.166µs
+  Worker 1 total: 6.833333ms
+  ProcessChunk: 648.041µs
+  ReadPAFFile chunk 9: 263.833µs
+  Worker 5 processed chunk: 756.125µs
+  Worker 3 processed chunk: 589.875µs
+  Worker 1 processed chunk: 769.125µs
+  ReadPAFFile chunk 1: 1.04225ms
+  ReadPAFFile chunk 18: 266.292µs
+  ReadPAFFile chunk 12: 263.75µs
+  Worker 5 total: 6.812792ms
+  Worker 0 total: 6.836542ms
+  Worker 4 processed chunk: 649.959µs
+  Worker 2 processed chunk: 786.459µs
+  ReadPAFFile chunk 15: 267.792µs
+  ReadMappingFile: 565.702541ms
+  ReadPAFFile chunk 3: 256.25µs
+  ProcessAllChunks: 7.481083ms
+  ReadPAFFile chunk 11: 305.458µs
+  ReadPAFFile chunk 2: 259.125µs
+  ReadPAFFile chunk 4: 254.625µs
+  ReadPAFFile chunk 16: 273.417µs
+  ReadPAFFile chunk 8: 254.833µs
+  Worker 3 total: 6.800042ms
+  Worker 7 total: 7.117209ms
+  ReadPAFFile chunk 13: 761.583µs
+  ReadPAFFile chunk 17: 262µs
+  Worker 6 total: 6.991833ms

@@ -1,0 +1,15 @@
+operation	duration_ms
+Worker 6 total	0
+Worker 4 total	0
+Worker 3 total	0
+Worker 2 total	0
+ReadPAFFile chunk 1	0
+Worker 7 total	0
+Worker 0 total	0
+Worker 1 total	0
+Worker 0 processed chunk	0
+ProcessAllChunks	0
+Worker 5 total	0
+ReadPAFFile setup	0
+ProcessChunk	0
+ReadMappingFile	600

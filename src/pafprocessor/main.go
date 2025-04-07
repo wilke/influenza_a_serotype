@@ -23,6 +23,7 @@ func main() {
 	logLevel := flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 	numWorkers := flag.Int("workers", runtime.NumCPU(), "Number of worker goroutines")
 	chunkSize := flag.Int("chunk-size", 1000, "Number of PAF entries per chunk")
+	useRAlgorithm := flag.Bool("r-algorithm", false, "Use R-compatible algorithm for read assignment")
 	cpuProfile := flag.String("cpu-profile", "", "Write CPU profile to file")
 	memProfile := flag.String("mem-profile", "", "Write memory profile to file")
 	logFile := flag.String("log-file", "", "Path to log file")
@@ -82,6 +83,7 @@ func main() {
 	pafprocessor.Logger.Infof("Sample name: %s", *sampleName)
 	pafprocessor.Logger.Infof("Number of workers: %d", *numWorkers)
 	pafprocessor.Logger.Infof("Chunk size: %d", *chunkSize)
+	pafprocessor.Logger.Infof("Using R-compatible algorithm: %t", *useRAlgorithm)
 
 	// Create output directory
 	if err := os.MkdirAll(*outputDir, 0755); err != nil {
@@ -107,7 +109,7 @@ func main() {
 	}
 
 	// Process chunks
-	summaries, err := pafprocessor.ProcessAllChunks(chunks, mapping, *minAlignmentScore, *paired, *numWorkers)
+	summaries, err := pafprocessor.ProcessAllChunks(chunks, mapping, *minAlignmentScore, *paired, *numWorkers, *useRAlgorithm)
 	if err != nil {
 		pafprocessor.Logger.Errorf("Error processing chunks: %v", err)
 		os.Exit(1)
@@ -156,7 +158,8 @@ func main() {
 	fmt.Fprintf(perfSummary, "PAF file: %s\n", *pafFile)
 	fmt.Fprintf(perfSummary, "Mapping file: %s\n", *mappingFile)
 	fmt.Fprintf(perfSummary, "Number of workers: %d\n", *numWorkers)
-	fmt.Fprintf(perfSummary, "Chunk size: %d\n\n", *chunkSize)
+	fmt.Fprintf(perfSummary, "Chunk size: %d\n", *chunkSize)
+	fmt.Fprintf(perfSummary, "Using R-compatible algorithm: %t\n\n", *useRAlgorithm)
 	fmt.Fprintf(perfSummary, "Total execution time: %s\n\n", totalTime)
 
 	fmt.Fprintf(perfSummary, "Performance Metrics:\n")
