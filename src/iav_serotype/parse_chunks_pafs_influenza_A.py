@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env pythom
 
 import pandas as pd
 import numpy as np

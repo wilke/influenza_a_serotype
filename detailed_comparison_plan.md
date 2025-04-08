@@ -1,161 +1,153 @@
-# Detailed Comparison Plan: R Script vs Go Implementation for Influenza A Serotyping
+# Detailed Comparison Plan for PAF Processor Implementations
 
-## 1. Algorithm Comparison
+This document outlines the comprehensive framework we've created for comparing the R and Go implementations of the PAF processor for influenza A serotyping.
 
-### 1.1 Data Structures and Input Processing
+## Overview
 
-| Feature | R Script | Go Program |
-|---------|----------|------------|
-| **Input Files** | PAF file, Flu info database | PAF file, Mapping file |
-| **Data Loading** | Uses `fread` from data.table package | Custom reader with chunking |
-| **Memory Management** | Loads entire files into memory | Processes data in chunks |
-| **Parallelism** | Sequential processing | Parallel processing with goroutines |
+We've developed a suite of tools to perform a detailed comparison of three implementations:
+1. **R Implementation** (`parse_pafs_influenza_A.R`)
+2. **Go Default Implementation** (`pafprocessor`)
+3. **Go R-Algorithm Implementation** (`pafprocessor --r-algorithm`)
 
-### 1.2 Core Algorithm Differences
+## Components Created
 
-```mermaid
-flowchart TD
-    subgraph "R Script"
-    R1[Read PAF file] --> R2[Read flu info database]
-    R2 --> R3[Merge data]
-    R3 --> R4[Group by qname, tname, serotype, segment, strand]
-    R4 --> R5[Calculate ANI, AF, align_score]
-    R5 --> R6[Assign reads based on top scores]
-    R6 --> R7[Filter by score threshold]
-    R7 --> R8[Generate outputs]
-    end
+### 1. Test Framework (`compare_paf_processors.sh`)
 
-    subgraph "Go Program"
-    G1[Read mapping file] --> G2[Read PAF file in chunks]
-    G2 --> G3[Process chunks in parallel]
-    G3 --> G4[Group by QName]
-    G4 --> G5[Calculate alignment scores]
-    G5 --> G6[Assign reads]
-    G6 --> G7[Generate results]
-    G7 --> G8[Performance metrics]
-    end
+A comprehensive Bash script that:
+- Takes a list of PAF files, output directory, worker count, and threshold as input
+- Runs all three implementations on each PAF file
+- Collects runtime metrics, memory usage, and exit codes
+- Organizes outputs in a structured directory
+- Generates a summary of results
+
+### 2. Visualization Tool (`visualize_comparison.py`)
+
+A Python script that:
+- Generates visualizations of performance metrics
+- Creates bar charts for runtime and memory usage
+- Produces stacked bar charts for read assignments
+- Generates both markdown and HTML reports
+
+### 3. Memory Analysis Tool (`analyze_memory_usage.py`)
+
+A specialized Python script for:
+- Analyzing memory usage patterns over time
+- Calculating key memory metrics (peak, average, growth rate)
+- Identifying potential memory leaks or inefficiencies
+- Generating memory efficiency metrics (reads per MB)
+
+### 4. Output Comparison Tool (`compare_paf_processor_outputs.py` and `compare_paf_processor_utils.py`)
+
+A set of Python scripts for:
+- Comparing read assignments between implementations
+- Calculating agreement metrics (percentage agreement, Cohen's Kappa)
+- Generating confusion matrices and heatmaps
+- Identifying specific differences in serotype assignments
+
+### 5. Test Data Generator (`generate_test_data.py`)
+
+A utility script for:
+- Generating synthetic memory usage data for testing
+- Simulating different memory patterns (stable, growing, fluctuating)
+- Creating test data for the memory analysis tool
+
+### 6. Documentation
+
+Comprehensive documentation including:
+- `PAF_PROCESSOR_COMPARISON.md`: Overview of the comparison framework
+- `compare_paf_processor_README.md`: Documentation for the output comparison tool
+
+## Workflow
+
+The complete workflow for comparing the implementations is:
+
+1. **Prepare Test Data**:
+   - Create a list of PAF files to test
+   - Ensure the mapping file is available
+
+2. **Run Comparison**:
+   ```bash
+   ./compare_paf_processors.sh paf_files.txt results/ 4 0.8
+   ```
+
+3. **Generate Visualizations**:
+   ```bash
+   python visualize_comparison.py results/
+   ```
+
+4. **Analyze Memory Usage**:
+   ```bash
+   python analyze_memory_usage.py results/
+   ```
+
+5. **Compare Outputs**:
+   ```bash
+   python compare_paf_processor_outputs.py results/
+   ```
+
+6. **Review Reports**:
+   - Performance report: `results/reports/comparison_report.html`
+   - Memory analysis: `results/memory_analysis/memory_analysis_report.html`
+   - Output comparison: `results/reports/output_comparison_report.html`
+
+## Key Metrics Collected
+
+### Performance Metrics
+- Runtime (seconds)
+- Memory usage (KB)
+- Exit codes
+- Reads processed per second
+
+### Memory Metrics
+- Peak memory usage
+- Average memory usage
+- Memory growth rate
+- Memory stability
+- Reads processed per MB
+
+### Output Metrics
+- Percentage agreement between implementations
+- Cohen's Kappa coefficient
+- Confusion matrices
+- Serotype distribution differences
+- Read assignment changes
+
+## Directory Structure
+
+The comparison framework creates the following directory structure:
+
+```
+results/
+├── r_implementation/           # R implementation outputs
+│   └── sample_name/            # Outputs for each sample
+├── go_default/                 # Go default implementation outputs
+│   └── sample_name/            # Outputs for each sample
+├── go_r_algorithm/             # Go R-algorithm implementation outputs
+│   └── sample_name/            # Outputs for each sample
+├── comparison/                 # Comparison results
+│   ├── runtime/                # Runtime comparison data
+│   ├── memory/                 # Memory usage comparison data
+│   └── outputs/                # Output differences
+├── memory_analysis/            # Memory analysis results
+│   ├── images/                 # Memory usage visualizations
+│   ├── memory_analysis_report.md  # Markdown report
+│   └── memory_analysis_report.html # HTML report
+├── reports/                    # Generated reports
+│   ├── images/                 # Visualization images
+│   ├── comparison_report.md    # Performance comparison (markdown)
+│   ├── comparison_report.html  # Performance comparison (HTML)
+│   ├── output_comparison_report.md  # Output comparison (markdown)
+│   └── output_comparison_report.html # Output comparison (HTML)
+├── summary.tsv                 # Summary data in TSV format
+└── final_summary.txt           # Text summary of comparison results
 ```
 
-### 1.3 Key Calculation Differences
+## Conclusion
 
-| Calculation | R Script | Go Program |
-|-------------|----------|------------|
-| **ANI** | `tot_match / tot_align` | `NumMatches / AlignLength` |
-| **AF** | `tot_align / tot_read_length` | `AlignLength / ReadLength` |
-| **Alignment Score** | `ANI * AF` | Appears to use just `ANI` in some places |
-| **Read Assignment** | If max(top_score - 0.003) >= min(top_score) OR n_distinct(serotype) == 1, assign first serotype; else "ambiguous" | If all serotypes are the same, assign that serotype; else "ambiguous" |
+This comprehensive comparison framework provides a detailed analysis of the three PAF processor implementations, focusing on:
 
-## 2. Performance Comparison
+1. **Performance**: Runtime and memory usage
+2. **Memory Patterns**: Identifying potential memory issues
+3. **Output Consistency**: Ensuring consistent serotype assignments
 
-### 2.1 Execution Time Analysis
-
-```mermaid
-gantt
-    title Expected Performance Comparison
-    dateFormat X
-    axisFormat %s
-    
-    section R Script
-    Data Loading      :r1, 0, 10
-    Processing        :r2, after r1, 30
-    Output Generation :r3, after r2, 10
-    
-    section Go Program
-    Data Loading      :g1, 0, 5
-    Chunk Processing  :g2, after g1, 15
-    Result Generation :g3, after g2, 5
-```
-
-### 2.2 Memory Usage Comparison
-
-| Aspect | R Script | Go Program |
-|--------|----------|------------|
-| **Memory Model** | Loads entire dataset | Chunk-based processing |
-| **Scalability** | May struggle with very large files | Better for large files due to chunking |
-| **Peak Memory** | Higher (full dataset in memory) | Lower (only chunks in memory) |
-
-### 2.3 Parallelism and Concurrency
-
-| Feature | R Script | Go Program |
-|---------|----------|------------|
-| **Parallelism** | Limited (sequential) | High (goroutines) |
-| **Worker Control** | N/A | Configurable number of workers |
-| **Chunk Size** | N/A | Configurable chunk size |
-
-## 3. Output Comparison
-
-### 3.1 File Outputs
-
-| Output | R Script | Go Program |
-|--------|----------|------------|
-| **Summary File** | `{sample}_read_summary.tsv` | `{sample}_read_summary.tsv` |
-| **Assignment Files** | One file per assignment | One file per assignment |
-| **Visualization** | PDF plot | None |
-| **Performance** | None | Performance summary and metrics |
-
-### 3.2 Result Accuracy
-
-To compare result accuracy, we need to:
-
-1. Run both implementations on the same dataset
-2. Compare the read assignments
-3. Analyze any differences in:
-   - Number of reads assigned to each serotype
-   - Number of ambiguous reads
-   - Specific read assignments that differ
-
-## 4. Implementation Plan
-
-### 4.1 Setup Test Environment
-
-1. Select test datasets of varying sizes
-2. Prepare execution environment for both implementations
-3. Set up metrics collection for:
-   - Execution time
-   - Memory usage
-   - CPU utilization
-
-### 4.2 Execute Tests
-
-```mermaid
-flowchart LR
-    D1[Small Dataset] --> R1[R Script]
-    D1 --> G1[Go Program]
-    D2[Medium Dataset] --> R2[R Script]
-    D2 --> G2[Go Program]
-    D3[Large Dataset] --> R3[R Script]
-    D3 --> G3[Go Program]
-    
-    R1 --> C1[Compare Results]
-    G1 --> C1
-    R2 --> C2[Compare Results]
-    G2 --> C2
-    R3 --> C3[Compare Results]
-    G3 --> C3
-    
-    C1 --> A[Analysis]
-    C2 --> A
-    C3 --> A
-```
-
-### 4.3 Result Analysis
-
-1. Compare execution metrics
-2. Compare output files
-3. Analyze differences in read assignments
-4. Identify potential improvements for both implementations
-
-## 5. Documentation and Recommendations
-
-### 5.1 Comprehensive Report
-
-1. Algorithm comparison
-2. Performance analysis
-3. Output comparison
-4. Identified differences and their causes
-
-### 5.2 Recommendations
-
-1. Potential improvements for each implementation
-2. Suggested use cases for each implementation
-3. Future development directions
+The framework is designed to be extensible, allowing for additional metrics and visualizations to be added as needed. It provides both high-level summaries and detailed analyses, making it suitable for both quick comparisons and in-depth investigations.
