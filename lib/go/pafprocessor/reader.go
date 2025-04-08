@@ -104,7 +104,9 @@ func ReadMappingFile(path string) (map[string]MappingEntry, error) {
 	return entries, nil
 }
 
-// ReadPAFFile reads a PAF file in chunks and returns a channel of PAF entry chunks
+// ReadPAFFile reads a PAF file and returns a channel of PAF entry chunks
+// Each chunk contains all entries with the same QName
+// chunkSize refers to the number of unique QNames per chunk
 func ReadPAFFile(path string, chunkSize int) (<-chan []PAFEntry, error) {
 	startTime := time.Now()
 	defer func() {
@@ -128,7 +130,9 @@ func ReadPAFFile(path string, chunkSize int) (<-chan []PAFEntry, error) {
 		scanner := bufio.NewScanner(file)
 		scanner.Buffer(make([]byte, 1024*1024), 1024*1024*10) // 10MB buffer
 
-		chunk := make([]PAFEntry, 0, chunkSize)
+		// Map to hold entries grouped by QName
+		entriesByQName := make(map[string][]PAFEntry)
+		uniqueQNames := make([]string, 0, chunkSize)
 		totalEntries := 0
 		chunkCount := 0
 		chunkStartTime := time.Now()
@@ -142,6 +146,7 @@ func ReadPAFFile(path string, chunkSize int) (<-chan []PAFEntry, error) {
 				continue
 			}
 
+			qName := fields[0]
 			qLength, _ := strconv.Atoi(fields[1])
 			qStart, _ := strconv.Atoi(fields[2])
 			qEnd, _ := strconv.Atoi(fields[3])
@@ -153,7 +158,7 @@ func ReadPAFFile(path string, chunkSize int) (<-chan []PAFEntry, error) {
 			mapQ, _ := strconv.Atoi(fields[11])
 
 			entry := PAFEntry{
-				QName:       fields[0],
+				QName:       qName,
 				QLength:     qLength,
 				QStart:      qStart,
 				QEnd:        qEnd,
@@ -167,14 +172,24 @@ func ReadPAFFile(path string, chunkSize int) (<-chan []PAFEntry, error) {
 				MapQ:        mapQ,
 			}
 
-			chunk = append(chunk, entry)
+			// Add entry to the map
+			if _, exists := entriesByQName[qName]; !exists {
+				uniqueQNames = append(uniqueQNames, qName)
+			}
+			entriesByQName[qName] = append(entriesByQName[qName], entry)
 			totalEntries++
 
-			if len(chunk) >= chunkSize {
+			// Send chunk when we've accumulated enough unique QNames
+			if len(uniqueQNames) >= chunkSize {
+				chunk := extractChunk(entriesByQName, uniqueQNames)
+
 				chunkCount++
 				LogPerformance(fmt.Sprintf("ReadPAFFile chunk %d", chunkCount), chunkStartTime)
 				chunks <- chunk
-				chunk = make([]PAFEntry, 0, chunkSize)
+
+				// Reset for next chunk
+				entriesByQName = make(map[string][]PAFEntry)
+				uniqueQNames = make([]string, 0, chunkSize)
 				chunkStartTime = time.Now()
 			}
 		}
@@ -184,7 +199,10 @@ func ReadPAFFile(path string, chunkSize int) (<-chan []PAFEntry, error) {
 			return
 		}
 
-		if len(chunk) > 0 {
+		// Send any remaining entries
+		if len(uniqueQNames) > 0 {
+			chunk := extractChunk(entriesByQName, uniqueQNames)
+
 			chunkCount++
 			LogPerformance(fmt.Sprintf("ReadPAFFile chunk %d", chunkCount), chunkStartTime)
 			chunks <- chunk
@@ -194,4 +212,13 @@ func ReadPAFFile(path string, chunkSize int) (<-chan []PAFEntry, error) {
 	}()
 
 	return chunks, nil
+}
+
+// extractChunk extracts entries from the map based on the list of QNames
+func extractChunk(entriesByQName map[string][]PAFEntry, qNames []string) []PAFEntry {
+	var chunk []PAFEntry
+	for _, qName := range qNames {
+		chunk = append(chunk, entriesByQName[qName]...)
+	}
+	return chunk
 }
