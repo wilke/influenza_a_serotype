@@ -122,6 +122,124 @@ func GenerateResults(summaries []SummaryEntry, outputDir, sampleName string) err
 	return nil
 }
 
+// StreamingGenerateResults generates the final results from a channel of summaries
+// This version processes summaries as they come in, reducing memory usage
+func StreamingGenerateResults(summariesChan <-chan []SummaryEntry, outputDir, sampleName string) error {
+	startTime := time.Now()
+	defer func() {
+		LogPerformance("StreamingGenerateResults", startTime)
+	}()
+
+	// Create output directory if it doesn't exist
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Group summaries by QName as they come in
+	groupedByQName := make(map[string][]SummaryEntry)
+	totalSummaries := 0
+
+	// Process summaries as they arrive
+	for summaryBatch := range summariesChan {
+		for _, summary := range summaryBatch {
+			groupedByQName[summary.QName] = append(groupedByQName[summary.QName], summary)
+			totalSummaries++
+		}
+	}
+
+	Logger.Infof("Grouped %d summaries into %d QName groups", totalSummaries, len(groupedByQName))
+
+	// Create final summaries with read assignments
+	var finalSummaries []SummaryEntry
+	for _, entries := range groupedByQName {
+		// Sort entries by TopScore in descending order
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].TopScore > entries[j].TopScore
+		})
+
+		// Check if all serotypes are the same
+		allSameSerotype := true
+		serotype := entries[0].Serotype
+		for _, entry := range entries {
+			if entry.Serotype != serotype {
+				allSameSerotype = false
+				break
+			}
+		}
+
+		// Create a list of unique segments
+		segmentMap := make(map[int]bool)
+		for _, entry := range entries {
+			segmentMap[entry.Segment] = true
+		}
+		var segments []int
+		for segment := range segmentMap {
+			segments = append(segments, segment)
+		}
+		sort.Ints(segments)
+
+		// Create a summary entry for this QName
+		summary := entries[0]
+		if allSameSerotype {
+			summary.ReadAssignment = serotype
+		} else {
+			summary.ReadAssignment = "ambiguous"
+		}
+
+		// Add the list of segments to the summary
+		summary.AllSegments = segments
+
+		// Collect all unique strands across all entries for this QName
+		strandMap := make(map[string]bool)
+
+		// First add any strands that might already be in the AllStrands field
+		for _, strand := range summary.AllStrands {
+			strandMap[strand] = true
+		}
+
+		// Then add strands from all entries
+		for _, entry := range entries {
+			strandMap[entry.Strand] = true
+			// Also add any strands from the AllStrands field of other entries
+			for _, strand := range entry.AllStrands {
+				strandMap[strand] = true
+			}
+		}
+
+		// Convert map keys to slice
+		allStrands := make([]string, 0, len(strandMap))
+		for strand := range strandMap {
+			allStrands = append(allStrands, strand)
+		}
+		sort.Strings(allStrands) // Sort for consistent output
+
+		Logger.Debugf("QName %s: Final all strands: %v", summary.QName, allStrands)
+		summary.AllStrands = allStrands
+
+		finalSummaries = append(finalSummaries, summary)
+	}
+
+	// Write summary file
+	summaryFile := filepath.Join(outputDir, fmt.Sprintf("%s_read_summary.tsv", sampleName))
+	if err := writeSummaryFile(finalSummaries, summaryFile); err != nil {
+		return fmt.Errorf("failed to write summary file: %w", err)
+	}
+
+	// Write individual read assignment files
+	if err := writeReadAssignmentFiles(finalSummaries, outputDir, sampleName); err != nil {
+		return fmt.Errorf("failed to write read assignment files: %w", err)
+	}
+
+	// Write performance report
+	perfFile := filepath.Join(outputDir, fmt.Sprintf("%s_performance.tsv", sampleName))
+	if err := writePerformanceReport(perfFile); err != nil {
+		return fmt.Errorf("failed to write performance report: %w", err)
+	}
+
+	Logger.Infof("Generated results for %d QName groups", len(groupedByQName))
+	return nil
+}
+
 // writeSummaryFile writes the summary file
 func writeSummaryFile(summaries []SummaryEntry, filePath string) error {
 	file, err := os.Create(filePath)

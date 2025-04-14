@@ -108,18 +108,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Process chunks
-	summaries, err := pafprocessor.ProcessAllChunks(chunks, mapping, *minAlignmentScore, *paired, *numWorkers, *useRAlgorithm)
-	if err != nil {
-		pafprocessor.Logger.Errorf("Error processing chunks: %v", err)
-		os.Exit(1)
-	}
+	// Process chunks using streaming approach to reduce memory usage
+	resultChan, errorChan, done := pafprocessor.StreamingProcessAllChunks(chunks, mapping, *minAlignmentScore, *paired, *numWorkers, *useRAlgorithm)
 
-	// Generate results
-	if err := pafprocessor.GenerateResults(summaries, *outputDir, *sampleName); err != nil {
+	// Check for errors from processing
+	go func() {
+		for err := range errorChan {
+			if err != nil {
+				pafprocessor.Logger.Errorf("Error processing chunks: %v", err)
+				os.Exit(1)
+			}
+		}
+	}()
+
+	// Generate results from the streaming channel
+	if err := pafprocessor.StreamingGenerateResults(resultChan, *outputDir, *sampleName); err != nil {
 		pafprocessor.Logger.Errorf("Error generating results: %v", err)
 		os.Exit(1)
 	}
+
+	// Call done function to log performance metrics
+	done()
 
 	// Log total execution time
 	totalTime := time.Since(startTime)

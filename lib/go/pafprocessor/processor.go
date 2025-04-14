@@ -324,3 +324,55 @@ func ProcessAllChunks(chunks <-chan []PAFEntry, mapping map[string]MappingEntry,
 	Logger.Infof("Processed %d summaries in total", len(allSummaries))
 	return allSummaries, nil
 }
+
+// StreamingProcessAllChunks processes all chunks of PAF entries in parallel and streams results to a channel
+// This version doesn't collect all summaries in memory, reducing memory usage
+func StreamingProcessAllChunks(chunks <-chan []PAFEntry, mapping map[string]MappingEntry, minScore float64, paired bool, numWorkers int, useRAlgorithm bool) (<-chan []SummaryEntry, <-chan error, func()) {
+	startTime := time.Now()
+
+	resultChan := make(chan []SummaryEntry, numWorkers)
+	errorChan := make(chan error, 1)
+	var wg sync.WaitGroup
+
+	// Start worker goroutines
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			workerStartTime := time.Now()
+
+			for chunk := range chunks {
+				chunkStartTime := time.Now()
+				summaries, err := ProcessChunk(chunk, mapping, minScore, paired, useRAlgorithm)
+				if err != nil {
+					select {
+					case errorChan <- err:
+						// Error sent
+					default:
+						// Error channel full, log the error
+						Logger.Errorf("Worker %d error: %v", workerID, err)
+					}
+					return
+				}
+				resultChan <- summaries
+				LogPerformance(fmt.Sprintf("Worker %d processed chunk", workerID), chunkStartTime)
+			}
+
+			LogPerformance(fmt.Sprintf("Worker %d total", workerID), workerStartTime)
+		}(i)
+	}
+
+	// Create a done function that will be called when processing is complete
+	done := func() {
+		LogPerformance("StreamingProcessAllChunks", startTime)
+	}
+
+	// Wait for all workers to finish in a separate goroutine
+	go func() {
+		wg.Wait()
+		close(resultChan)
+		close(errorChan)
+	}()
+
+	return resultChan, errorChan, done
+}
