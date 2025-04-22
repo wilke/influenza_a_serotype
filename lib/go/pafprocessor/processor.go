@@ -2,6 +2,7 @@ package pafprocessor
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -40,8 +41,13 @@ func ProcessChunk(chunk []PAFEntry, mapping map[string]MappingEntry, minScore fl
 func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]MappingEntry, minScore float64, paired bool, useRAlgorithm bool) ([]SummaryEntry, error) {
 	// 1. Compute alignment score for each entry
 	var groupedEntries []GroupedEntry
+	Logger.Debugf("Processing QName group %s with %d entries", qname, len(entries))
+
+	total := 0
 	for _, entry := range entries {
+		total += 1
 		mappingEntry, ok := mapping[entry.TName]
+
 		if !ok {
 			Logger.Warnf("No mapping entry found for TName %s, using default values", entry.TName)
 			// Use default values for unmapped entries
@@ -54,6 +60,10 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 				CollectionDate: "",
 			}
 		}
+
+		// Logger.Debugf("Entry: %v", entry)
+		// Logger.Debugf("Mapping entry for TName %s: %v", entry.TName, mappingEntry)
+		// os.Exit(1)
 
 		// Compute alignment score
 		var alignScore float64
@@ -81,12 +91,21 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 			ReadLength:  entry.QLength,
 			AlignLength: entry.AlignLength,
 			NumMatches:  entry.NumMatches,
-			ANI:         float64(entry.NumMatches) / float64(entry.AlignLength),
-			AF:          float64(entry.AlignLength) / float64(entry.QLength),
-			AlignScore:  alignScore,
+			// TargetLength: entry.TLength,
+			ANI:        float64(entry.NumMatches) / float64(entry.AlignLength),
+			AF:         float64(entry.AlignLength) / float64(entry.QLength),
+			AlignScore: alignScore,
 		}
 
 		groupedEntries = append(groupedEntries, groupedEntry)
+	}
+
+	Logger.Debugf("Filtered %d entries to %d grouped entries (total %d)", len(entries), len(groupedEntries), total)
+	// Print first entry for debugging
+	if len(groupedEntries) > 0 {
+		for i := 0; i < len(groupedEntries); i++ {
+			// Logger.Debugf("%v", groupedEntries[i])
+		}
 	}
 
 	if len(groupedEntries) == 0 {
@@ -103,11 +122,17 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 			key = fmt.Sprintf("%s_%s_%s_%d", entry.QName, entry.TName, entry.Serotype, entry.Segment)
 		}
 		groupedByFields[key] = append(groupedByFields[key], entry)
+		Logger.Debugf("Keys: %d , added key %s (size %d)", len(groupedByFields), key, len(groupedByFields[key]))
 	}
 
 	// 4. Compute max and avg scores for each group
 	var qssSummaries []SummaryEntry
 	for _, entries := range groupedByFields {
+
+		Logger.Debugf("Processing group with %d entries", len(entries))
+		Logger.Debugf("Processing group with %v", entries)
+		os.Exit(1)
+
 		var totalScore float64
 		var maxScore float64
 		var totalReadLength int

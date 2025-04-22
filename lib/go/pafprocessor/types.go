@@ -28,12 +28,13 @@ type MappingEntry struct {
 
 // GroupedEntry represents a PAF entry with serotype and segment information
 type GroupedEntry struct {
-	QName       string
-	TName       string
-	Serotype    string
-	Segment     int
-	Strand      string
-	ReadLength  int
+	QName      string
+	TName      string
+	Serotype   string
+	Segment    int
+	Strand     string
+	ReadLength int
+	// TargetLength int
 	AlignLength int
 	NumMatches  int
 	ANI         float64
