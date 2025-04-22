@@ -14,6 +14,7 @@ import (
 // GenerateResults generates the final results from the processed summaries
 func GenerateResults(summaries []SummaryEntry, outputDir, sampleName string) error {
 	startTime := time.Now()
+
 	defer func() {
 		LogPerformance("GenerateResults", startTime)
 	}()
@@ -130,6 +131,9 @@ func StreamingGenerateResults(summariesChan <-chan []SummaryEntry, outputDir, sa
 		LogPerformance("StreamingGenerateResults", startTime)
 	}()
 
+	// Print the start time
+	Logger.Infof("Starting GenerateResults at %s", startTime.Format(time.RFC3339))
+
 	// Create output directory if it doesn't exist
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
@@ -145,6 +149,7 @@ func StreamingGenerateResults(summariesChan <-chan []SummaryEntry, outputDir, sa
 			groupedByQName[summary.QName] = append(groupedByQName[summary.QName], summary)
 			totalSummaries++
 		}
+		Logger.Infof("Processed %d summaries, total so far: %d", len(summaryBatch), totalSummaries)
 	}
 
 	Logger.Infof("Grouped %d summaries into %d QName groups", totalSummaries, len(groupedByQName))
@@ -237,6 +242,8 @@ func StreamingGenerateResults(summariesChan <-chan []SummaryEntry, outputDir, sa
 	}
 
 	Logger.Infof("Generated results for %d QName groups", len(groupedByQName))
+	Logger.Infof("Finished GenerateResults at %s", time.Now().Format(time.RFC3339))
+	os.Exit(1)
 	return nil
 }
 
