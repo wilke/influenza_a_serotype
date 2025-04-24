@@ -2,7 +2,6 @@ package pafprocessor
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"time"
 )
@@ -26,11 +25,12 @@ func ProcessChunk(chunk []PAFEntry, mapping map[string]MappingEntry, minScore fl
 
 	// Process each QName group
 	for qname, entries := range groupedByQName {
-		groupSummaries, err := processQNameGroup(qname, entries, mapping, minScore, paired, useRAlgorithm)
+		groupSummary, err := processQNameGroup(qname, entries, mapping, minScore, paired, useRAlgorithm)
 		if err != nil {
 			return nil, fmt.Errorf("failed to process QName group %s: %w", qname, err)
 		}
-		summaries = append(summaries, groupSummaries...)
+		summaries = append(summaries, groupSummary)
+		Logger.Debugf("Processed QName group %s with %d entries", qname, len(entries))
 	}
 
 	Logger.Debugf("Processed %d QName groups into %d summaries", len(groupedByQName), len(summaries))
@@ -38,7 +38,7 @@ func ProcessChunk(chunk []PAFEntry, mapping map[string]MappingEntry, minScore fl
 }
 
 // processQNameGroup processes a group of PAF entries with the same QName
-func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]MappingEntry, minScore float64, paired bool, useRAlgorithm bool) ([]SummaryEntry, error) {
+func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]MappingEntry, minScore float64, paired bool, useRAlgorithm bool) (SummaryEntry, error) {
 	// 1. Compute alignment score for each entry
 	var groupedEntries []GroupedEntry
 	Logger.Debugf("Processing QName group %s with %d entries", qname, len(entries))
@@ -109,7 +109,7 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 	}
 
 	if len(groupedEntries) == 0 {
-		return nil, nil
+		return SummaryEntry{}, nil
 	}
 
 	// 3. Group by qname, tname, serotype, segment, strand
@@ -122,16 +122,15 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 			key = fmt.Sprintf("%s_%s_%s_%d", entry.QName, entry.TName, entry.Serotype, entry.Segment)
 		}
 		groupedByFields[key] = append(groupedByFields[key], entry)
-		Logger.Debugf("Keys: %d , added key %s (size %d)", len(groupedByFields), key, len(groupedByFields[key]))
+		// Logger.Debugf("Keys: %d , added key %s (size %d)", len(groupedByFields), key, len(groupedByFields[key]))
 	}
 
 	// 4. Compute max and avg scores for each group
 	var qssSummaries []SummaryEntry
 	for _, entries := range groupedByFields {
 
-		Logger.Debugf("Processing group with %d entries", len(entries))
-		Logger.Debugf("Processing group with %v", entries)
-		os.Exit(1)
+		// Logger.Debugf("Processing group with %d entries", len(entries))
+		// Logger.Debugf("Processing group with %v", entries)
 
 		var totalScore float64
 		var maxScore float64
@@ -151,9 +150,9 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 
 		avgScore := totalScore / float64(len(entries))
 		// Calculate ANI and AF for logging purposes
-		ani := float64(totalMatches) / float64(totalAlignLength)
-		af := float64(totalAlignLength) / float64(totalReadLength)
-		Logger.Debugf("Group %s: ANI=%f, AF=%f, AlignScore=%f", entries[0].QName, ani, af, ani*af)
+		// ani := float64(totalMatches) / float64(totalAlignLength)
+		// af := float64(totalAlignLength) / float64(totalReadLength)
+		// Logger.Debugf("Group %s: ANI=%f, AF=%f, AlignScore=%f", entries[0].QName, ani, af, ani*af)
 
 		// Collect all unique strands for this group
 		strandMap := make(map[string]bool)
@@ -167,7 +166,7 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 			allStrands = append(allStrands, strand)
 		}
 
-		Logger.Debugf("Group %s: Found %d unique strands: %v", entries[0].QName, len(allStrands), allStrands)
+		// Logger.Debugf("Group %s: Found %d unique strands: %v", entries[0].QName, len(allStrands), allStrands)
 
 		summary := SummaryEntry{
 			QName:      entries[0].QName,
@@ -179,7 +178,7 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 			AvgScore:   avgScore,
 			AllStrands: allStrands,
 		}
-
+		// Logger.Debugf("Summary for group %s: %v", entries[0].QName, summary)
 		qssSummaries = append(qssSummaries, summary)
 	}
 
@@ -206,6 +205,8 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 			filteredSummaries = append(filteredSummaries, summary)
 		}
 	}
+
+	var finalAssignment SummaryEntry
 
 	// 6. Create read assignment
 	if useRAlgorithm {
@@ -241,9 +242,11 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 		if len(topSummaries) > 0 {
 			if allSameSerotype || len(topSummaries) == 1 {
 				// All serotypes are the same, assign the serotype
-				for i := range filteredSummaries {
-					filteredSummaries[i].ReadAssignment = serotype
-				}
+				finalAssignment = topSummaries[0]
+				finalAssignment.ReadAssignment = serotype
+				// for i := range filteredSummaries {
+				// 	filteredSummaries[i].ReadAssignment = serotype
+				// }
 			} else if len(topSummaries) >= 2 {
 				// Check if max(top_score - 0.003) >= min(top_score)
 				maxScore := topSummaries[0].TopScore
@@ -251,14 +254,17 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 
 				if maxScore-0.003 >= minScore {
 					// Scores are close enough, assign the top serotype
-					for i := range filteredSummaries {
-						filteredSummaries[i].ReadAssignment = topSummaries[0].Serotype
-					}
+					finalAssignment = topSummaries[0]
+					// for i := range filteredSummaries {
+					// 	filteredSummaries[i].ReadAssignment = topSummaries[0].Serotype
+					// }
 				} else {
 					// Scores are too different, assign "ambiguous"
-					for i := range filteredSummaries {
-						filteredSummaries[i].ReadAssignment = "ambiguous"
-					}
+					finalAssignment = topSummaries[0]
+					finalAssignment.ReadAssignment = "ambiguous"
+					// for i := range filteredSummaries {
+					// 	filteredSummaries[i].ReadAssignment = "ambiguous"
+					// }
 				}
 			}
 		}
@@ -285,9 +291,11 @@ func processQNameGroup(qname string, entries []PAFEntry, mapping map[string]Mapp
 				filteredSummaries[i].ReadAssignment = "ambiguous"
 			}
 		}
+		finalAssignment = filteredSummaries[0]
 	}
-
-	return filteredSummaries, nil
+	Logger.Debugf("Final assignment for %s: %v", qname, finalAssignment)
+	// os.Exit(1)
+	return finalAssignment, nil
 }
 
 // ProcessAllChunks processes all chunks of PAF entries in parallel

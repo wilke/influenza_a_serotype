@@ -61,8 +61,8 @@ for cmd in bc Rscript /usr/bin/time; do
 done
 
 # Check if Go implementation is available
-if [[ ! -f "./src/pafprocessor/pafprocessor" ]]; then
-    echo "Error: Go implementation not found at ./src/pafprocessor/pafprocessor"
+if [[ ! -f "./src/paf2serotypes/paf2serotypes" ]]; then
+    echo "Error: Go implementation not found at ./src/paf2serotypes/paf2serotypes"
     echo "Please compile the Go implementation before running this script."
     exit 1
 fi
@@ -223,8 +223,8 @@ if [[ ! -f "src/iav_serotype/parse_pafs_influenza_A.R" ]]; then
     log "ERROR: R script not found at src/iav_serotype/parse_pafs_influenza_A.R"
 fi
 
-if [[ ! -f "./src/pafprocessor/pafprocessor" ]]; then
-    log "ERROR: Go binary not found at ./src/pafprocessor/pafprocessor"
+if [[ ! -f "./src/paf2serotypes/paf2serotypes" ]]; then
+    log "ERROR: Go binary not found at ./src/paf2serotypes/paf2serotypes"
 fi
 
 # Check if the DBs directory exists
@@ -424,14 +424,14 @@ while read -r paf_file; do
     mkdir -p "$go_default_output_dir" || { log "Error: Failed to create directory '$go_default_output_dir'"; continue; }
     
     # Log the full command for debugging
-    log "Go default command: /usr/bin/time -l ./src/pafprocessor/pafprocessor --mapping \"$MAPPING_FILE\" --paf \"$paf_file\" --min-score \"$THRESHOLD\" --workers \"$WORKERS\" --output \"$go_default_output_dir\" --sample \"$sample_name\" --log-level \"info\""
+    log "Go default command: /usr/bin/time -l ./src/paf2serotypes/paf2serotypes --mapping \"$MAPPING_FILE\" --paf \"$paf_file\" --min-score \"$THRESHOLD\" --workers \"$WORKERS\" --output \"$go_default_output_dir\" --sample \"$sample_name\" --log-level \"info\""
     
     # Check if the Go binary exists
-    if [[ ! -f "./src/pafprocessor/pafprocessor" ]]; then
-        log "ERROR: Go binary not found at ./src/pafprocessor/pafprocessor"
+    if [[ ! -f "./src/paf2serotypes/paf2serotypes" ]]; then
+        log "ERROR: Go binary not found at ./src/paf2serotypes/paf2serotypes"
     fi
     
-    go_default_result=$(run_process /usr/bin/time -l ./src/pafprocessor/pafprocessor \
+    go_default_result=$(run_process /usr/bin/time -l ./src/paf2serotypes/paf2serotypes \
         --mapping "$MAPPING_FILE" \
         --paf "$paf_file" \
         --min-score "$THRESHOLD" \
@@ -477,14 +477,14 @@ while read -r paf_file; do
     mkdir -p "$go_r_algorithm_output_dir" || { log "Error: Failed to create directory '$go_r_algorithm_output_dir'"; continue; }
     
     # Log the full command for debugging
-    log "Go R-algorithm command: /usr/bin/time -l ./src/pafprocessor/pafprocessor --mapping \"$MAPPING_FILE\" --paf \"$paf_file\" --min-score \"$THRESHOLD\" --workers \"$WORKERS\" --output \"$go_r_algorithm_output_dir\" --sample \"$sample_name\" --log-level \"info\" --r-algorithm"
+    log "Go R-algorithm command: /usr/bin/time -l ./src/paf2serotypes/paf2serotypes --mapping \"$MAPPING_FILE\" --paf \"$paf_file\" --min-score \"$THRESHOLD\" --workers \"$WORKERS\" --output \"$go_r_algorithm_output_dir\" --sample \"$sample_name\" --log-level \"info\" --r-algorithm"
     
     # Check if the Go binary exists (redundant check, but keeping for completeness)
-    if [[ ! -f "./src/pafprocessor/pafprocessor" ]]; then
-        log "ERROR: Go binary not found at ./src/pafprocessor/pafprocessor"
+    if [[ ! -f "./src/paf2serotypes/paf2serotypes" ]]; then
+        log "ERROR: Go binary not found at ./src/paf2serotypes/paf2serotypes"
     fi
     
-    go_r_algorithm_result=$(run_process /usr/bin/time -l ./src/pafprocessor/pafprocessor \
+    go_r_algorithm_result=$(run_process /usr/bin/time -l ./src/paf2serotypes/paf2serotypes \
         --mapping "$MAPPING_FILE" \
         --paf "$paf_file" \
         --min-score "$THRESHOLD" \
