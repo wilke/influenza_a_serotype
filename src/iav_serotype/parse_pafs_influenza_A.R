@@ -95,5 +95,3 @@ sum_dt %>%
                                       "_", .y$read_assignment, ".txt"),
                            quote = F, row.names = F, col.names = F,
                            sep = "\t"))
-
-

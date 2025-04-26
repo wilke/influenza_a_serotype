@@ -124,3 +124,88 @@ Note: I'm working on getting a more complete database, as I think there is relev
 # Future updates
 
 1) Add Influenza B, C, and D
+
+
+# Execution Scripts
+
+This repository includes several scripts to run and compare the R and Go implementations of the influenza A serotype analysis:
+
+## run_original_r.sh
+
+This script runs the original R implementation:
+
+```bash
+./run_original_r.sh <flu_db> <paf> <sample> <outdir> <score_thresh>
+```
+
+Parameters:
+- `<flu_db>`: Path to the influenza mapping file (e.g., DBs/v1.25/Influenza_A_segment_info1.tsv)
+- `<paf>`: Path to the PAF file to process
+- `<sample>`: Sample name for output files
+- `<outdir>`: Output directory for results
+- `<score_thresh>`: Score threshold for assignments (e.g., 0.8)
+
+Example:
+```bash
+./run_original_r.sh DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
+```
+
+## run_go.sh
+
+This script builds and runs the Go implementation:
+
+```bash
+./run_go.sh <flu_db> <paf> <sample> <outdir> <score_thresh>
+```
+
+Parameters:
+- `<flu_db>`: Path to the influenza mapping file (e.g., DBs/v1.25/Influenza_A_segment_info1.tsv)
+- `<paf>`: Path to the PAF file to process
+- `<sample>`: Sample name for output files
+- `<outdir>`: Output directory for results
+- `<score_thresh>`: Score threshold for assignments (e.g., 0.8)
+
+Example:
+```bash
+./run_go.sh DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
+```
+
+## compare.sh
+
+This script compares the outputs of the R and Go implementations:
+
+```bash
+./compare.sh <outdir> <sample>
+```
+
+Parameters:
+- `<outdir>`: Output directory containing results from both implementations
+- `<sample>`: Sample name used for the output files
+
+Example:
+```bash
+./compare.sh test_output test_sample
+```
+
+Note: Before running the comparison script, you need to run both the R and Go implementations first.
+
+## Workflow Example
+
+To run a complete analysis and comparison:
+
+1. Run the original R implementation:
+```bash
+./run_original_r.sh DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
+```
+
+2. Run the Go implementation:
+```bash
+./run_go.sh DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
+```
+
+3. Compare the results:
+```bash
+./compare.sh test_output test_sample
+```
+
+The comparison will generate a detailed report in JSON format and display a summary of the performance and output differences between the two implementations.
