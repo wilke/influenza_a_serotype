@@ -49,6 +49,11 @@ func (p *PafProcessor) Process(chunk interface{}, mapping interface{}) (interfac
 	// Assign serotypes
 	summaries := model.AssignSerotypes(scores, p.scoreThresh, p.ambiguityThresh)
 
+	fmt.Printf("Processed %d records, found %d scores and %d serotypes\n", len(records), len(scores), len(summaries))
+	// fmt.Printf("Records: %v \n", records)
+	// fmt.Printf("Summaries: %v \n", summaries)
+	// os.Exit(1)
+
 	return summaries, nil
 }
 

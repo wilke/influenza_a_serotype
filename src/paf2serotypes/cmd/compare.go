@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/me/influenza_a_serotype/lib/go/paf2serotypes/log"
@@ -37,6 +39,19 @@ type ComparisonResult struct {
 	UniqueSerotypes     int            `json:"unique_serotypes"`
 	TotalSerotypes      int            `json:"total_serotypes"`
 	SerotypeDifferences map[string]int `json:"serotype_differences"`
+
+	// Serotype comparison table
+	// Format: array of arrays, where each inner array contains [serotype name, count r algorithm, count go algorithm]
+	SerotypesComparisonTable [][]interface{} `json:"serotype_comparison_table"`
+
+	// Read-by-read serotype assignment comparison
+	SerotypesMatch           bool                   `json:"serotypes_match"`
+	TotalReads               int                    `json:"total_reads"`
+	MatchingAssignments      int                    `json:"matching_assignments"`
+	NonMatchingAssignments   int                    `json:"non_matching_assignments"`
+	AgreementPercentage      float64                `json:"agreement_percentage"`
+	SerotypeDiffBreakdown    map[string]int         `json:"serotype_diff_breakdown"`
+	ReadAssignmentComparison map[string]interface{} `json:"read_assignment_comparison"`
 }
 
 // compareCmd represents the compare command
@@ -65,6 +80,68 @@ func init() {
 
 	// Mark required flags
 	compareCmd.MarkFlagRequired("r-script")
+}
+
+// extractSerotypesFromMapping extracts the list of unique serotypes from the mapping file
+func extractSerotypesFromMapping(mappingFile string) ([]string, error) {
+	// Open the mapping file
+	file, err := os.Open(mappingFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open mapping file: %w", err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.Comma = '\t'
+	reader.Comment = '#'
+
+	// Read header
+	header, err := reader.Read()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read mapping file header: %w", err)
+	}
+
+	// Find serotype column index
+	serotypeIdx := -1
+	for i, col := range header {
+		if col == "serotype" {
+			serotypeIdx = i
+			break
+		}
+	}
+
+	if serotypeIdx == -1 {
+		return nil, fmt.Errorf("mapping file missing required column: serotype")
+	}
+
+	// Read entries and collect unique serotypes
+	serotypesMap := make(map[string]bool)
+
+	for {
+		record, err := reader.Read()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			return nil, fmt.Errorf("failed to read mapping file record: %w", err)
+		}
+
+		if serotypeIdx < len(record) {
+			serotype := record[serotypeIdx]
+			serotypesMap[serotype] = true
+		}
+	}
+
+	// Convert map to slice
+	serotypes := make([]string, 0, len(serotypesMap))
+	for serotype := range serotypesMap {
+		serotypes = append(serotypes, serotype)
+	}
+
+	// Sort serotypes for consistent output
+	sort.Strings(serotypes)
+
+	return serotypes, nil
 }
 
 // collectProcessMetrics collects metrics for a running process
@@ -204,6 +281,111 @@ func compareSerotypeCounts(goFile, rFile string) (map[string]int, map[string]int
 	return goSerotypes, differences, uniqueSerotypes, totalSerotypes, nil
 }
 
+// compareSerotypesReadByRead compares serotype assignments on a read-by-read basis
+func compareSerotypesReadByRead(goFile, rFile string) (bool, int, int, int, float64, map[string]int, map[string]interface{}, error) {
+	// Read Go file
+	goLines, err := readLines(goFile)
+	if err != nil {
+		return false, 0, 0, 0, 0, nil, nil, fmt.Errorf("failed to read Go file: %w", err)
+	}
+
+	// Read R file
+	rLines, err := readLines(rFile)
+	if err != nil {
+		return false, 0, 0, 0, 0, nil, nil, fmt.Errorf("failed to read R file: %w", err)
+	}
+
+	// Parse the files to extract read assignments
+	goAssignments, err := parseReadAssignments(goLines)
+	if err != nil {
+		return false, 0, 0, 0, 0, nil, nil, fmt.Errorf("failed to parse Go assignments: %w", err)
+	}
+
+	rAssignments, err := parseReadAssignments(rLines)
+	if err != nil {
+		return false, 0, 0, 0, 0, nil, nil, fmt.Errorf("failed to parse R assignments: %w", err)
+	}
+
+	// Compare assignments
+	totalReads := len(goAssignments)
+	matchingAssignments := 0
+	nonMatchingAssignments := 0
+	diffBreakdown := make(map[string]int)
+	readComparison := make(map[string]interface{})
+
+	// Create a set of all reads from both implementations
+	allReads := make(map[string]bool)
+	for read := range goAssignments {
+		allReads[read] = true
+	}
+	for read := range rAssignments {
+		allReads[read] = true
+	}
+
+	// Compare each read
+	for read := range allReads {
+		goAssignment, goOk := goAssignments[read]
+		rAssignment, rOk := rAssignments[read]
+
+		// Skip reads that are only in one implementation
+		if !goOk || !rOk {
+			continue
+		}
+
+		// Compare assignments
+		if goAssignment == rAssignment {
+			matchingAssignments++
+		} else {
+			nonMatchingAssignments++
+			// Track differences by serotype pair
+			diffKey := fmt.Sprintf("%s->%s", rAssignment, goAssignment)
+			diffBreakdown[diffKey]++
+
+			// Store detailed comparison for this read
+			readComparison[read] = map[string]string{
+				"go": goAssignment,
+				"r":  rAssignment,
+			}
+		}
+	}
+
+	// Calculate agreement percentage
+	agreementPercentage := 0.0
+	if totalReads > 0 {
+		agreementPercentage = float64(matchingAssignments) / float64(totalReads) * 100
+	}
+
+	// Check if all assignments match
+	serotypesMatch := nonMatchingAssignments == 0
+
+	return serotypesMatch, totalReads, matchingAssignments, nonMatchingAssignments, agreementPercentage, diffBreakdown, readComparison, nil
+}
+
+// parseReadAssignments parses read assignments from file lines
+func parseReadAssignments(lines []string) (map[string]string, error) {
+	assignments := make(map[string]string)
+
+	// Skip header line
+	if len(lines) <= 1 {
+		return assignments, nil
+	}
+
+	for i := 1; i < len(lines); i++ {
+		fields := strings.Split(lines[i], "\t")
+		if len(fields) >= 7 { // Ensure we have enough columns
+			readName := fields[0]
+			assignment := fields[6] // read_assignment is in the 7th column
+
+			// Only store the first occurrence of each read (which should be the highest scoring one)
+			if _, exists := assignments[readName]; !exists {
+				assignments[readName] = assignment
+			}
+		}
+	}
+
+	return assignments, nil
+}
+
 // readSerotypeCounts reads serotype counts from a file
 func readSerotypeCounts(filePath string) (map[string]int, error) {
 	// Check if file exists
@@ -233,8 +415,8 @@ func readSerotypeCounts(filePath string) (map[string]int, error) {
 
 	// Skip header
 	for i := 1; i < len(records); i++ {
-		if len(records[i]) >= 3 { // Ensure we have enough columns
-			serotype := records[i][2] // Assuming serotype is in the 3rd column
+		if len(records[i]) >= 7 { // Ensure we have enough columns
+			serotype := records[i][6] // read_assignment is in the 7th column
 			serotypeCounts[serotype]++
 		}
 	}
@@ -273,6 +455,16 @@ func runCompare(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("R script does not exist: %s", rScript)
 	}
 
+	// Extract serotypes from mapping file
+	log.Info("Extracting serotypes from mapping file: %s", Config.MappingFile)
+	serotypes, err := extractSerotypesFromMapping(Config.MappingFile)
+	if err != nil {
+		log.Warn("Failed to extract serotypes from mapping file: %v", err)
+		log.Warn("Will continue with comparison but serotype list may be incomplete")
+	} else {
+		log.Info("Found %d unique serotypes in mapping file: %v", len(serotypes), serotypes)
+	}
+
 	// Create subdirectories for Go and R outputs
 	goOutput := filepath.Join(Config.OutputDir, "go")
 	if err := os.MkdirAll(goOutput, 0755); err != nil {
@@ -299,10 +491,12 @@ func runCompare(cmd *cobra.Command, args []string) error {
 
 	// Initialize comparison result
 	result := &ComparisonResult{
-		GoMemory:  make(map[string]uint64),
-		RMemory:   make(map[string]uint64),
-		GoIOStats: make(map[string]uint64),
-		RIOStats:  make(map[string]uint64),
+		GoMemory:                 make(map[string]uint64),
+		RMemory:                  make(map[string]uint64),
+		GoIOStats:                make(map[string]uint64),
+		RIOStats:                 make(map[string]uint64),
+		SerotypeDiffBreakdown:    make(map[string]int),
+		ReadAssignmentComparison: make(map[string]interface{}),
 	}
 
 	// Run Go implementation
@@ -474,10 +668,31 @@ CompareOutputs:
 		result.UniqueSerotypes = uniqueSerotypes
 		result.TotalSerotypes = totalSerotypes
 
+		// Build the serotype comparison table
+		// Format: array of arrays, where each inner array contains [serotype name, count r algorithm, count go algorithm]
+		result.SerotypesComparisonTable = make([][]interface{}, 0, len(goSerotypeCounts))
+
+		// Add a header row
+		headerRow := []interface{}{"Serotype", "Counts R algorithm", "Counts Go algorithm"}
+		result.SerotypesComparisonTable = append(result.SerotypesComparisonTable, headerRow)
+
+		// Add data rows
+		for serotype, goCount := range goSerotypeCounts {
+			// Calculate R count by subtracting the difference from the Go count
+			rCount := goCount
+			if diff, ok := serotypeDifferences[serotype]; ok {
+				rCount = goCount - diff
+			}
+
+			row := []interface{}{serotype, rCount, goCount}
+			result.SerotypesComparisonTable = append(result.SerotypesComparisonTable, row)
+		}
+
 		log.Info("Serotype comparison:")
 		log.Info("  Unique serotypes: %d", uniqueSerotypes)
 		log.Info("  Total serotypes: %d", totalSerotypes)
 		log.Info("  Serotypes with differences: %d", len(serotypeDifferences))
+		log.Info("  Serotype comparison table created with %d rows", len(result.SerotypesComparisonTable))
 
 		if len(serotypeDifferences) > 0 {
 			log.Warn("  Serotype differences detected:")
@@ -486,6 +701,36 @@ CompareOutputs:
 			}
 		} else {
 			log.Info("  Serotype counts match exactly!")
+		}
+	}
+
+	// Compare serotype assignments on a read-by-read basis
+	log.Info("Comparing serotype assignments on a read-by-read basis")
+	serotypesMatch, totalReads, matchingAssignments, nonMatchingAssignments, agreementPercentage, diffBreakdown, readComparison, err := compareSerotypesReadByRead(goSummaryFile, rSummaryFile)
+	if err != nil {
+		log.Warn("Failed to compare serotype assignments: %v", err)
+	} else {
+		result.SerotypesMatch = serotypesMatch
+		result.TotalReads = totalReads
+		result.MatchingAssignments = matchingAssignments
+		result.NonMatchingAssignments = nonMatchingAssignments
+		result.AgreementPercentage = agreementPercentage
+		result.SerotypeDiffBreakdown = diffBreakdown
+		result.ReadAssignmentComparison = readComparison
+
+		log.Info("Serotype assignment comparison:")
+		log.Info("  Total reads: %d", totalReads)
+		log.Info("  Matching assignments: %d", matchingAssignments)
+		log.Info("  Non-matching assignments: %d", nonMatchingAssignments)
+		log.Info("  Agreement percentage: %.2f%%", agreementPercentage)
+
+		if serotypesMatch {
+			log.Info("  All serotype assignments match!")
+		} else {
+			log.Warn("  Serotype assignment differences detected:")
+			for diffKey, count := range diffBreakdown {
+				log.Warn("    %s: %d", diffKey, count)
+			}
 		}
 	}
 

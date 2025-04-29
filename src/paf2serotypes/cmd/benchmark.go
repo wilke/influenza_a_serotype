@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,8 +79,16 @@ func collectProcessMetrics(pid int32) (map[string]uint64, float64, map[string]ui
 	// I/O metrics
 	ioCounters, err := proc.IOCounters()
 	if err != nil {
-		return memoryUsage, cpuPercent, nil, fmt.Errorf("failed to get I/O info: %w", err)
+		log.Warn("Failed to get I/O info: %v", err)
+		ioStats := map[string]uint64{
+			"read_count":  0,
+			"write_count": 0,
+			"read_bytes":  0,
+			"write_bytes": 0,
+		}
+		return memoryUsage, cpuPercent, ioStats, nil
 	}
+
 	ioStats := map[string]uint64{
 		"read_count":  ioCounters.ReadCount,
 		"write_count": ioCounters.WriteCount,
@@ -136,6 +145,11 @@ func runGoImplementation(cmd *cobra.Command, args []string) (*BenchmarkResult, e
 		MemoryUsage:    memoryUsage,
 		CPUUsage:       cpuUsage,
 		IOStats:        map[string]uint64{}, // Not available directly
+	}
+
+	// Ensure CPUUsage is not NaN
+	if math.IsNaN(result.CPUUsage) {
+		result.CPUUsage = 0
 	}
 
 	return result, nil
@@ -234,6 +248,11 @@ func runRImplementation(cmd *cobra.Command, args []string) (*BenchmarkResult, er
 				IOStats:  finalIOStats,
 			}
 
+			// Ensure CPUUsage is not NaN
+			if math.IsNaN(result.CPUUsage) {
+				result.CPUUsage = 0
+			}
+
 			return result, nil
 		}
 	}
@@ -311,10 +330,21 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	avgGoCPU := totalGoCPU / float64(iterations)
 	avgRCPU := totalRCPU / float64(iterations)
 
-	// Calculate speedup
-	runtimeSpeedup := float64(avgRRuntime) / float64(avgGoRuntime)
-	memoryImprovement := float64(avgRMemory) / float64(avgGoMemory)
-	cpuImprovement := avgRCPU / avgGoCPU
+	// Calculate speedup with safety checks
+	runtimeSpeedup := 0.0
+	if avgGoRuntime > 0 {
+		runtimeSpeedup = float64(avgRRuntime) / float64(avgGoRuntime)
+	}
+
+	memoryImprovement := 0.0
+	if avgGoMemory > 0 {
+		memoryImprovement = float64(avgRMemory) / float64(avgGoMemory)
+	}
+
+	cpuImprovement := 0.0
+	if avgGoCPU > 0 {
+		cpuImprovement = avgRCPU / avgGoCPU
+	}
 
 	// Report results
 	log.Info("Benchmark results summary:")
@@ -328,6 +358,14 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 	log.Info("  Average Go CPU usage: %.2f%%", avgGoCPU)
 	log.Info("  Average R CPU usage: %.2f%%", avgRCPU)
 	log.Info("  CPU usage improvement: %.2fx", cpuImprovement)
+
+	// Helper function to handle NaN values
+	safeFloat := func(f float64) interface{} {
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return nil
+		}
+		return f
+	}
 
 	// Create detailed report
 	report := map[string]interface{}{
@@ -343,13 +381,13 @@ func runBenchmark(cmd *cobra.Command, args []string) error {
 		"summary": map[string]interface{}{
 			"avg_go_runtime":     avgGoRuntime.String(),
 			"avg_r_runtime":      avgRRuntime.String(),
-			"runtime_speedup":    runtimeSpeedup,
+			"runtime_speedup":    safeFloat(runtimeSpeedup),
 			"avg_go_memory":      avgGoMemory,
 			"avg_r_memory":       avgRMemory,
-			"memory_improvement": memoryImprovement,
+			"memory_improvement": safeFloat(memoryImprovement),
 			"avg_go_cpu":         avgGoCPU,
 			"avg_r_cpu":          avgRCPU,
-			"cpu_improvement":    cpuImprovement,
+			"cpu_improvement":    safeFloat(cpuImprovement),
 		},
 	}
 

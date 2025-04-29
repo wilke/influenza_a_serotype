@@ -93,3 +93,142 @@ The tool includes detailed logging for:
 4. **Result Generation**: Number of results generated.
 5. **Performance**: Execution time and memory usage for each step.
 6. **Errors**: Any errors encountered during execution.
+
+## Benchmark Mode
+
+The benchmark mode allows you to measure and compare the performance between the Go and R implementations of the PAF processor. This mode is particularly useful when optimizing code and tracking performance improvements.
+
+### Usage
+
+```bash
+./pafprocessor benchmark \
+  --paf <paf_file> \
+  --mapping <mapping_file> \
+  --sample <sample_name> \
+  --output <output_dir> \
+  --min-score <score_threshold> \
+  --r-script <r_script_path> \
+  --r-output <r_output_dir> \
+  --iterations <num_iterations> \
+  --report-file <report_file>
+```
+
+### Required Arguments
+
+- `--r-script`: Path to the R script implementation
+
+### Optional Arguments
+
+- `--iterations`: Number of benchmark iterations (default: 3)
+- `--profile`: Enable CPU and memory profiling (default: false)
+- `--profile-dir`: Directory for profiling output (default: ".")
+- `--r-output`: Output directory for R results (default: "<output_dir>/r_output")
+- `--report-file`: Output file for benchmark report (default: "benchmark_report.json")
+- `--verbose`: Enable verbose output (default: false)
+
+### Metrics Collected
+
+The benchmark mode collects the following metrics for both implementations:
+
+- **Runtime**: Total execution time for processing the input data
+- **Memory Usage**: Peak memory consumption (RSS, VMS, Swap)
+- **CPU Utilization**: Average CPU usage percentage
+- **I/O Operations**: Number of read/write operations and bytes
+
+### Output
+
+The benchmark mode generates a detailed JSON report containing:
+
+1. **Configuration**: Input parameters and settings used for the benchmark
+2. **Raw Results**: Detailed metrics for each iteration of both implementations
+3. **Summary**: Average metrics and improvement ratios between implementations
+
+Recent updates include a fix for JSON marshaling of NaN values in performance metrics, ensuring the benchmark reports are always valid JSON.
+
+### Example
+
+```bash
+./pafprocessor benchmark \
+  --paf test_data/small_test.paf \
+  --mapping DBs/v1.25/Influenza_A_segment_info1.tsv \
+  --sample benchmark_test \
+  --output test_output \
+  --r-script src/iav_serotype/parse_pafs_influenza_A.R \
+  --iterations 5 \
+  --report-file test_output/benchmark_report.json
+```
+
+## Compare Mode
+
+The compare mode verifies the correctness of the Go implementation by comparing its output with the original R implementation. This mode is essential when making changes to ensure the Go implementation produces correct results.
+
+### Usage
+
+```bash
+./pafprocessor compare \
+  --paf <paf_file> \
+  --mapping <mapping_file> \
+  --sample <sample_name> \
+  --output <output_dir> \
+  --min-score <score_threshold> \
+  --r-script <r_script_path> \
+  --r-output <r_output_dir> \
+  --report-file <report_file>
+```
+
+### Required Arguments
+
+- `--r-script`: Path to the R script implementation
+
+### Optional Arguments
+
+- `--r-output`: Output directory for R results (default: "<output_dir>/R")
+- `--report-file`: Output file for comparison report (default: "comparison_report.json")
+- `--verbose`: Enable verbose output (default: false)
+
+### Comparison Checks
+
+The compare mode performs the following checks:
+
+1. **Line-by-Line Comparison**: Verifies that each line in the output files matches
+2. **Serotype Assignment Comparison**: Checks that serotype assignments are identical
+3. **Count Verification**: Ensures that the count of each serotype matches between implementations
+
+### Output
+
+The compare mode generates a detailed JSON report showing:
+
+1. **Performance Metrics**: Runtime, memory usage, and CPU utilization for both implementations
+2. **Output Comparison**: Line counts, matching status, and any differences found
+3. **Serotype Analysis**: Counts of serotypes and any discrepancies between implementations
+
+### Example
+
+```bash
+./pafprocessor compare \
+  --paf test_data/small_test.paf \
+  --mapping DBs/v1.25/Influenza_A_segment_info1.tsv \
+  --sample test_sample \
+  --output test_output \
+  --r-script src/iav_serotype/parse_pafs_influenza_A.R \
+  --report-file test_output/comparison_report.json
+```
+
+## Benchmark Script
+
+A benchmark script (`benchmark_script.sh`) is provided to run both the benchmark and compare commands with a single command. The script also generates an HTML report visualizing the benchmark results.
+
+### Usage
+
+```bash
+./benchmark_script.sh
+```
+
+### HTML Report
+
+The HTML report includes:
+
+- Performance comparison charts
+- Memory usage visualization
+- Output comparison results
+- Detailed metrics tables

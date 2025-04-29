@@ -102,6 +102,7 @@ func NewPafReaderWithOptions(filename string, options PafReaderOptions) (*PafRea
 }
 
 // ReadChunk reads a chunk of PAF records with optimized memory allocation
+// This implementation ensures that all records with the same Qname are kept in the same chunk
 func (r *PafReader) ReadChunk(requestedChunkSize int) (interface{}, error) {
 	// Determine actual chunk size based on adaptive settings
 	chunkSize := requestedChunkSize
@@ -119,14 +120,33 @@ func (r *PafReader) ReadChunk(requestedChunkSize int) (interface{}, error) {
 	chunk := make([]model.PafRecord, 0, chunkSize)
 	count := 0
 
-	for r.scanner.Scan() && count < chunkSize {
+	// Track the last Qname to ensure we don't split records with the same Qname
+	var lastQname string
+	var continuingQname bool
+
+	for r.scanner.Scan() {
 		line := r.scanner.Text()
 		if line == "" {
 			continue
 		}
 
-		// Split the line into fields (reuse the same slice if possible)
+		// Split the line into fields
 		fields := strings.Split(line, "\t")
+
+		// Extract the Qname from the fields (first field)
+		currentQname := fields[0]
+
+		// Check if we've reached the chunk size and this is a new Qname
+		// If so, we can stop reading and return the current chunk
+		if count >= chunkSize && currentQname != lastQname && !continuingQname {
+			break
+		}
+
+		// If we're continuing to read records with the same Qname after reaching
+		// the chunk size, set the flag to true
+		if count >= chunkSize && currentQname == lastQname {
+			continuingQname = true
+		}
 
 		// Create a new record, using the object pool if available
 		var record *model.PafRecord
@@ -154,7 +174,16 @@ func (r *PafReader) ReadChunk(requestedChunkSize int) (interface{}, error) {
 			r.recordPool.Put(record)
 		}
 
+		// Update the last Qname and increment the count
+		lastQname = currentQname
 		count++
+
+		// Safety check for extremely large groups of records with the same Qname
+		// If we've read 3x the chunk size and we're still seeing the same Qname,
+		// break to prevent potential memory issues
+		if continuingQname && count > 3*chunkSize {
+			break
+		}
 	}
 
 	if err := r.scanner.Err(); err != nil {

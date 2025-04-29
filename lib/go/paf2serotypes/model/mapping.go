@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 )
 
 // MappingEntry represents a single entry from the mapping file
@@ -63,6 +64,13 @@ func NewMappingDatabase(filename string) (*MappingDatabase, error) {
 		Entries: make(map[string]MappingEntry),
 	}
 
+	// Open file for writing records without segment
+	file, err = os.OpenFile("mapping_without_segment.txt", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open mapping file for writing: %w", err)
+	}
+	defer file.Close()
+
 	for {
 		record, err := reader.Read()
 		if err == io.EOF {
@@ -76,8 +84,12 @@ func NewMappingDatabase(filename string) (*MappingDatabase, error) {
 		segment, err := parseInt(record[segmentIdx])
 		if err != nil {
 			// Log the error but continue with a default value
-			fmt.Printf("Warning: failed to parse segment '%s': %v, using default value 0\n",
-				record[segmentIdx], err)
+			// fmt.Printf("Warning: failed to parse segment '%s': %v, using default value 0\n",
+			// 	record[segmentIdx], err)
+			// Write the record to the file for further inspection
+			_, err = file.WriteString(strings.Join(record, "\t") + "\n")
+			// fmt.Printf("Record: %v\n", record)
+			// os.Exit(1)
 			segment = 0
 		}
 

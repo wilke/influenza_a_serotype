@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/me/influenza_a_serotype/lib/go/paf2serotypes/log"
 )
 
 // AlignmentScore represents calculated alignment scores
@@ -68,7 +70,7 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 			// Track missing entries for logging
 			if !missingEntries[record.Tname] {
 				missingEntries[record.Tname] = true
-				fmt.Printf("Warning: No mapping entry found for target: %s, using default values\n", record.Tname)
+				log.Warn("No mapping entry found for target: %s, using default values", record.Tname)
 			}
 
 			// Extract serotype from target name if possible (e.g., if it contains H1N1)
@@ -118,7 +120,7 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 
 	// If no groups were created, log a warning
 	if len(groups) == 0 {
-		fmt.Println("Warning: No groups created from PAF records. Check mapping database and PAF file compatibility.")
+		log.Warn("No groups created from PAF records. Check mapping database and PAF file compatibility.")
 	}
 
 	// Pre-allocate scores slice with exact capacity needed
@@ -129,7 +131,7 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 		// Parse the key using strings.Split instead of fmt.Sscanf
 		parts := strings.Split(key, "|")
 		if len(parts) != 5 {
-			fmt.Printf("Warning: Invalid key format: %s\n", key)
+			log.Warn("Invalid key format: %s", key)
 			continue
 		}
 
@@ -175,28 +177,30 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 		return scores[i].Qname < scores[j].Qname
 	})
 
+	fmt.Printf("%v\n", scores)
+	for i, score := range scores {
+		log.Debug("Score %d: %+v", i, score)
+		fmt.Printf("%+v\n", score)
+	}
 	return scores, nil
 }
 
 // AssignSerotypes assigns serotypes based on alignment scores
 // Optimized version with pre-allocated maps and reduced allocations
 func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float64) []SerotypeSummary {
-	// Set consistent ambiguity threshold to match R implementation
-	// Ignore the passed ambiguityThresh parameter and use a constant value to match R implementation
-	const ambiguityThreshConst = 0.003
-	// Print debug info
-	fmt.Printf("AssignSerotypes called with %d scores, scoreThresh=%f, ambiguityThresh=%f\n",
+	// Log debug info
+	log.Debug("AssignSerotypes called with %d scores, scoreThresh=%f, ambiguityThresh=%f",
 		len(scores), scoreThresh, ambiguityThresh)
 
 	// Reduce debug output to improve performance
 	if len(scores) < 10 {
 		for i, score := range scores {
-			fmt.Printf("Score %d: %+v\n", i, score)
+			log.Debug("Score %d: %+v", i, score)
 		}
 	} else {
-		fmt.Printf("First 5 scores (of %d total):\n", len(scores))
+		log.Debug("First 5 scores (of %d total):", len(scores))
 		for i := 0; i < 5 && i < len(scores); i++ {
-			fmt.Printf("Score %d: %+v\n", i, scores[i])
+			log.Debug("Score %d: %+v", i, scores[i])
 		}
 	}
 
@@ -234,12 +238,12 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 
 	// Reduce debug output for large datasets
 	if len(topScores) < 20 {
-		fmt.Println("Top scores by read and serotype:")
+		log.Debug("Top scores by read and serotype:")
 		for key, score := range topScores {
-			fmt.Printf("Read: %s, Serotype: %s, Score: %f\n", key.read, key.serotype, score)
+			log.Debug("Read: %s, Serotype: %s, Score: %f", key.read, key.serotype, score)
 		}
 	} else {
-		fmt.Printf("Found %d read-serotype combinations\n", len(topScores))
+		log.Debug("Found %d read-serotype combinations", len(topScores))
 	}
 
 	// Group by read name with pre-allocation
@@ -300,7 +304,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 
 		// Check if difference between top two scores is greater than or equal to threshold
 		scoreDiff := scoresList[0].score - scoresList[1].score
-		if scoreDiff >= ambiguityThreshConst { // Changed to >= to match R implementation
+		if scoreDiff >= ambiguityThresh { // Use the passed ambiguity threshold
 			readAssignments[read] = scoresList[0].serotype
 		} else {
 			readAssignments[read] = "ambiguous"
@@ -352,7 +356,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 	for key, group := range groups {
 		parts := strings.Split(key, "|")
 		if len(parts) != 3 {
-			fmt.Printf("Warning: Invalid key format: %s\n", key)
+			log.Warn("Invalid key format: %s", key)
 			continue
 		}
 
@@ -436,22 +440,22 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 
 	// Reduce debug output for large datasets
 	if len(summaries) < 20 {
-		fmt.Println("Final summaries:")
+		log.Debug("Final summaries:")
 		for i, summary := range summaries {
-			fmt.Printf("Summary %d: %+v\n", i, summary)
+			log.Debug("Summary %d: %+v", i, summary)
 		}
 	} else {
-		fmt.Printf("Generated %d summaries\n", len(summaries))
-		fmt.Println("First 5 summaries:")
+		log.Debug("Generated %d summaries", len(summaries))
+		log.Debug("First 5 summaries:")
 		for i := 0; i < 5 && i < len(summaries); i++ {
-			fmt.Printf("Summary %d: %+v\n", i, summaries[i])
+			log.Debug("Summary %d: %+v", i, summaries[i])
 		}
 	}
 
 	// If we have no results but we have scores, create summaries directly from the scores
 	// This is a fallback for test cases that might not have all the required fields
 	if len(summaries) == 0 && len(scores) > 0 {
-		fmt.Println("No summaries generated but scores exist, creating direct summaries")
+		log.Info("No summaries generated but scores exist, creating direct summaries")
 
 		// Group scores by read name
 		readScores := make(map[string][]AlignmentScore)
@@ -543,7 +547,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 						} else {
 							// Normal case
 							scoreDiff := readScoresList[0].AlignScore - readScoresList[1].AlignScore
-							if scoreDiff <= ambiguityThreshConst {
+							if scoreDiff <= ambiguityThresh {
 								// Ambiguous case - only include the top-scoring serotype for each segment
 								// Create a map to track top scores by segment
 								topScoreBySegment := make(map[int]float64)
@@ -598,9 +602,9 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 				return summaries[i].Qname < summaries[j].Qname
 			})
 
-			fmt.Println("Fallback summaries:")
+			log.Debug("Fallback summaries:")
 			for i, summary := range summaries {
-				fmt.Printf("Summary %d: %+v\n", i, summary)
+				log.Debug("Summary %d: %+v", i, summary)
 			}
 		}
 
