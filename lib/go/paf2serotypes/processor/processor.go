@@ -47,6 +47,9 @@ func (p *PafProcessor) Process(chunk interface{}, mapping interface{}) (interfac
 	}
 
 	// Assign serotypes
+	// Note: The AssignSerotypes function has been updated to match the R implementation's order of operations:
+	// 1. First determines if a read is ambiguous by comparing ALL serotype scores
+	// 2. Then filters out reads where the maximum score is below the threshold
 	summaries := model.AssignSerotypes(scores, p.scoreThresh, p.ambiguityThresh)
 
 	fmt.Printf("Processed %d records, found %d scores and %d serotypes\n", len(records), len(scores), len(summaries))

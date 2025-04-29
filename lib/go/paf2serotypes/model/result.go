@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/csv"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,6 +12,12 @@ import (
 
 	"github.com/me/influenza_a_serotype/lib/go/paf2serotypes/log"
 )
+
+// roundToSixDecimalPlaces rounds a float64 value to 6 decimal places
+// This matches R's default rounding behavior for numeric display
+func roundToSixDecimalPlaces(value float64) float64 {
+	return math.Round(value*1000000) / 1000000
+}
 
 // AlignmentScore represents calculated alignment scores
 type AlignmentScore struct {
@@ -148,7 +155,7 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 			totalMatch += record.NumMatches
 		}
 
-		// Calculate scores only once
+		// Calculate scores only once and round to 6 decimal places
 		ani := float64(totalMatch) / float64(totalAlign)
 		af := float64(totalAlign) / float64(totalReadLength)
 		alignScore := ani * af
@@ -163,9 +170,9 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 			ReadLength:  totalReadLength,
 			AlignLength: totalAlign,
 			NumMatches:  totalMatch,
-			ANI:         ani,
-			AF:          af,
-			AlignScore:  alignScore,
+			ANI:         roundToSixDecimalPlaces(ani),
+			AF:          roundToSixDecimalPlaces(af),
+			AlignScore:  roundToSixDecimalPlaces(alignScore),
 		})
 	}
 
@@ -187,6 +194,17 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 
 // AssignSerotypes assigns serotypes based on alignment scores
 // Optimized version with pre-allocated maps and reduced allocations
+//
+// IMPORTANT: This implementation follows the R implementation's order of operations:
+// 1. First determines if a read is ambiguous by comparing ALL serotype scores
+// 2. Then filters out reads where the maximum score is below the threshold
+//
+// This differs from the original Go implementation which:
+// 1. First filtered out serotypes with scores below the threshold
+// 2. Then determined ambiguity using only the remaining serotypes
+//
+// The R implementation's approach ensures ambiguity determination considers
+// all available data before applying score thresholds.
 func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float64) []SerotypeSummary {
 	// Log debug info
 	log.Debug("AssignSerotypes called with %d scores, scoreThresh=%f, ambiguityThresh=%f",
@@ -273,14 +291,15 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 		// Reuse the slice by resetting its length
 		scoresList := scoresListPool[:0]
 
-		// Collect scores above threshold
+		// IMPORTANT: Collect ALL scores for ambiguity determination (not just those above threshold)
+		// This matches the R implementation which determines ambiguity before filtering by threshold
+		// The original implementation filtered scores before ambiguity determination, which could
+		// lead to different results when low-scoring serotypes would have affected ambiguity
 		for serotype, score := range serotypes {
-			if score >= scoreThresh {
-				scoresList = append(scoresList, serotypeScore{serotype: serotype, score: score})
-			}
+			scoresList = append(scoresList, serotypeScore{serotype: serotype, score: score})
 		}
 
-		// Skip if no scores above threshold
+		// Skip if no scores at all
 		if len(scoresList) == 0 {
 			continue
 		}
@@ -303,7 +322,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 		}
 
 		// Check if difference between top two scores is greater than or equal to threshold
-		scoreDiff := scoresList[0].score - scoresList[1].score
+		scoreDiff := roundToSixDecimalPlaces(scoresList[0].score - scoresList[1].score)
 		if scoreDiff >= ambiguityThresh { // Use the passed ambiguity threshold
 			readAssignments[read] = scoresList[0].serotype
 		} else {
@@ -400,32 +419,38 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 			}
 			totalScore += score.AlignScore
 		}
-		avgScore := totalScore / float64(len(group))
+		avgScore := roundToSixDecimalPlaces(totalScore / float64(len(group)))
 
-		// Only include summaries for reads that have assignments and meet the score threshold
-		if assignment, ok := readAssignments[qname]; ok && topScore >= scoreThresh {
-			// For non-ambiguous reads, include all serotypes
-			if assignment != "ambiguous" {
-				summaries = append(summaries, SerotypeSummary{
-					Qname:          qname,
-					Serotype:       serotype,
-					Segment:        segment,
-					Count:          len(group),
-					TopScore:       topScore,
-					AvgScore:       avgScore,
-					ReadAssignment: assignment,
-				})
-			} else {
-				// For ambiguous reads, include all serotypes to match R implementation
-				summaries = append(summaries, SerotypeSummary{
-					Qname:          qname,
-					Serotype:       serotype,
-					Segment:        segment,
-					Count:          len(group),
-					TopScore:       topScore,
-					AvgScore:       avgScore,
-					ReadAssignment: assignment,
-				})
+		// IMPORTANT: First check if the top score meets the threshold
+		// This matches the R implementation which filters by threshold after determining ambiguity
+		// In the R implementation, ambiguity is determined using all serotypes, then reads with
+		// max scores below threshold are filtered out (see line 66 in parse_pafs_influenza_A.R)
+		if topScore >= scoreThresh {
+			// Then check if this read has an assignment
+			if assignment, ok := readAssignments[qname]; ok {
+				// For non-ambiguous reads, include all serotypes
+				if assignment != "ambiguous" {
+					summaries = append(summaries, SerotypeSummary{
+						Qname:          qname,
+						Serotype:       serotype,
+						Segment:        segment,
+						Count:          len(group),
+						TopScore:       topScore,
+						AvgScore:       avgScore,
+						ReadAssignment: assignment,
+					})
+				} else {
+					// For ambiguous reads, include all serotypes to match R implementation
+					summaries = append(summaries, SerotypeSummary{
+						Qname:          qname,
+						Serotype:       serotype,
+						Segment:        segment,
+						Count:          len(group),
+						TopScore:       topScore,
+						AvgScore:       avgScore,
+						ReadAssignment: assignment,
+					})
+				}
 			}
 		}
 	}
@@ -474,8 +499,12 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 				return readScoresList[i].AlignScore > readScoresList[j].AlignScore
 			})
 
-			// Check if we have at least one score above threshold
-			if len(readScoresList) > 0 && readScoresList[0].AlignScore >= scoreThresh {
+			// IMPORTANT: First determine ambiguity using all scores, then check threshold
+			// This matches the R implementation's order of operations where ambiguity is determined
+			// before filtering by threshold (see lines 51-66 in parse_pafs_influenza_A.R)
+			if len(readScoresList) > 0 {
+				// Store the top score for threshold filtering later
+				topAlignScore := readScoresList[0].AlignScore
 				// Check if we have a single serotype
 				if len(readScoresList) == 1 {
 					// Single serotype case
@@ -546,7 +575,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 							}
 						} else {
 							// Normal case
-							scoreDiff := readScoresList[0].AlignScore - readScoresList[1].AlignScore
+							scoreDiff := roundToSixDecimalPlaces(readScoresList[0].AlignScore - readScoresList[1].AlignScore)
 							if scoreDiff <= ambiguityThresh {
 								// Ambiguous case - only include the top-scoring serotype for each segment
 								// Create a map to track top scores by segment
@@ -589,6 +618,24 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 									})
 								}
 							}
+						}
+					}
+				}
+
+				// IMPORTANT: Apply score threshold after ambiguity determination
+				// This matches the R implementation which filters by threshold after determining ambiguity
+				// In the R code, this is done with filter(max(top_score) >= score_thresh) after ambiguity
+				// determination (see line 66 in parse_pafs_influenza_A.R)
+				if roundToSixDecimalPlaces(topAlignScore) < scoreThresh {
+					// Remove all summaries for this read if top score is below threshold
+					i := 0
+					for i < len(summaries) {
+						if summaries[i].Qname == readName {
+							// Remove this summary by swapping with the last element and reducing slice length
+							summaries[i] = summaries[len(summaries)-1]
+							summaries = summaries[:len(summaries)-1]
+						} else {
+							i++
 						}
 					}
 				}
@@ -693,8 +740,8 @@ func WriteSummary(summaries []SerotypeSummary, outDir, sampleName string) error 
 					summary.Serotype,
 					strconv.Itoa(summary.Segment),
 					strconv.Itoa(summary.Count),
-					strconv.FormatFloat(summary.TopScore, 'f', 6, 64),
-					strconv.FormatFloat(summary.AvgScore, 'f', 6, 64),
+					strconv.FormatFloat(roundToSixDecimalPlaces(summary.TopScore), 'f', 6, 64),
+					strconv.FormatFloat(roundToSixDecimalPlaces(summary.AvgScore), 'f', 6, 64),
 					summary.ReadAssignment,
 				}
 				if err := writer.Write(record); err != nil {
@@ -725,7 +772,7 @@ func WriteReadLists(summaries []SerotypeSummary, outDir, sampleName string) erro
 	for _, summary := range summaries {
 		if summary.ReadAssignment == "ambiguous" {
 			currentTopScore, exists := topScoresByRead[summary.Qname]
-			if !exists || summary.TopScore > currentTopScore {
+			if !exists || roundToSixDecimalPlaces(summary.TopScore) > roundToSixDecimalPlaces(currentTopScore) {
 				topScoresByRead[summary.Qname] = summary.TopScore
 				topSerotypesForAmbiguous[summary.Qname] = summary.Serotype
 			}
