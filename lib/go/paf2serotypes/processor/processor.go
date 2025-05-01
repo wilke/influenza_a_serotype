@@ -52,10 +52,7 @@ func (p *PafProcessor) Process(chunk interface{}, mapping interface{}) (interfac
 	// 2. Then filters out reads where the maximum score is below the threshold
 	summaries := model.AssignSerotypes(scores, p.scoreThresh, p.ambiguityThresh)
 
-	fmt.Printf("Processed %d records, found %d scores and %d serotypes\n", len(records), len(scores), len(summaries))
-	// fmt.Printf("Records: %v \n", records)
-	// fmt.Printf("Summaries: %v \n", summaries)
-	// os.Exit(1)
+	// fmt.Printf("Processed %d records, found %d scores and %d serotypes\n", len(records), len(scores), len(summaries))
 
 	return summaries, nil
 }

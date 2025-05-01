@@ -3,7 +3,6 @@ package model
 import (
 	"encoding/csv"
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,12 +11,6 @@ import (
 
 	"github.com/me/influenza_a_serotype/lib/go/paf2serotypes/log"
 )
-
-// roundToSixDecimalPlaces rounds a float64 value to 6 decimal places
-// This matches R's default rounding behavior for numeric display
-func roundToSixDecimalPlaces(value float64) float64 {
-	return math.Round(value*1000000) / 1000000
-}
 
 // AlignmentScore represents calculated alignment scores
 type AlignmentScore struct {
@@ -170,9 +163,9 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 			ReadLength:  totalReadLength,
 			AlignLength: totalAlign,
 			NumMatches:  totalMatch,
-			ANI:         roundToSixDecimalPlaces(ani),
-			AF:          roundToSixDecimalPlaces(af),
-			AlignScore:  roundToSixDecimalPlaces(alignScore),
+			ANI:         ani,
+			AF:          af,
+			AlignScore:  alignScore,
 		})
 	}
 
@@ -184,11 +177,6 @@ func CalculateScores(records []PafRecord, db *MappingDatabase) ([]AlignmentScore
 		return scores[i].Qname < scores[j].Qname
 	})
 
-	fmt.Printf("%v\n", scores)
-	for i, score := range scores {
-		log.Debug("Score %d: %+v", i, score)
-		fmt.Printf("%+v\n", score)
-	}
 	return scores, nil
 }
 
@@ -322,7 +310,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 		}
 
 		// Check if difference between top two scores is greater than or equal to threshold
-		scoreDiff := roundToSixDecimalPlaces(scoresList[0].score - scoresList[1].score)
+		scoreDiff := scoresList[0].score - scoresList[1].score
 		if scoreDiff >= ambiguityThresh { // Use the passed ambiguity threshold
 			readAssignments[read] = scoresList[0].serotype
 		} else {
@@ -419,7 +407,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 			}
 			totalScore += score.AlignScore
 		}
-		avgScore := roundToSixDecimalPlaces(totalScore / float64(len(group)))
+		avgScore := totalScore / float64(len(group))
 
 		// IMPORTANT: First check if the top score meets the threshold
 		// This matches the R implementation which filters by threshold after determining ambiguity
@@ -575,7 +563,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 							}
 						} else {
 							// Normal case
-							scoreDiff := roundToSixDecimalPlaces(readScoresList[0].AlignScore - readScoresList[1].AlignScore)
+							scoreDiff := readScoresList[0].AlignScore - readScoresList[1].AlignScore
 							if scoreDiff <= ambiguityThresh {
 								// Ambiguous case - only include the top-scoring serotype for each segment
 								// Create a map to track top scores by segment
@@ -626,7 +614,7 @@ func AssignSerotypes(scores []AlignmentScore, scoreThresh, ambiguityThresh float
 				// This matches the R implementation which filters by threshold after determining ambiguity
 				// In the R code, this is done with filter(max(top_score) >= score_thresh) after ambiguity
 				// determination (see line 66 in parse_pafs_influenza_A.R)
-				if roundToSixDecimalPlaces(topAlignScore) < scoreThresh {
+				if topAlignScore < scoreThresh {
 					// Remove all summaries for this read if top score is below threshold
 					i := 0
 					for i < len(summaries) {
@@ -740,8 +728,8 @@ func WriteSummary(summaries []SerotypeSummary, outDir, sampleName string) error 
 					summary.Serotype,
 					strconv.Itoa(summary.Segment),
 					strconv.Itoa(summary.Count),
-					strconv.FormatFloat(roundToSixDecimalPlaces(summary.TopScore), 'f', 6, 64),
-					strconv.FormatFloat(roundToSixDecimalPlaces(summary.AvgScore), 'f', 6, 64),
+					strconv.FormatFloat(float64(summary.TopScore), 'f', 6, 32),
+					strconv.FormatFloat(float64(summary.AvgScore), 'f', 6, 32),
 					summary.ReadAssignment,
 				}
 				if err := writer.Write(record); err != nil {
@@ -772,7 +760,7 @@ func WriteReadLists(summaries []SerotypeSummary, outDir, sampleName string) erro
 	for _, summary := range summaries {
 		if summary.ReadAssignment == "ambiguous" {
 			currentTopScore, exists := topScoresByRead[summary.Qname]
-			if !exists || roundToSixDecimalPlaces(summary.TopScore) > roundToSixDecimalPlaces(currentTopScore) {
+			if !exists || summary.TopScore > currentTopScore {
 				topScoresByRead[summary.Qname] = summary.TopScore
 				topSerotypesForAmbiguous[summary.Qname] = summary.Serotype
 			}
