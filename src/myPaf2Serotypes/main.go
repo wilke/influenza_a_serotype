@@ -5,9 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 	// "github.com/me/influenza_a_serotype/lib/go/paf2serotypes/log"
 )
 
@@ -225,8 +228,20 @@ func LoadMappingFile(filename string) (mapping Mapping, err error) {
 		return Mapping{}, fmt.Errorf("failed to read mapping file: %w", err)
 	}
 
-	return Mapping{}, nil
+	return mapping, nil
 }
+
+// Create a function which waits randomly for 1 - 10 seconds
+// and then returns the scores
+
+func WaitRandomly(record []PafHit, summaries chan string) {
+	// Wait for a random time between 1 and 10 seconds
+	time.Sleep(time.Duration(rand.Intn(10)+1) * time.Second)
+	summaries <- fmt.Sprintf("Processed %d records", len(record))
+
+}
+
+// func WaitRandomly() {
 
 // func CalculateScores(record chan []string, mapping Mapping) (scores Scores, error) {
 // }
@@ -267,9 +282,20 @@ func main() {
 	record := make(chan []PafHit, 10)
 	go StreamPaf2Record(pafFile, record)
 
-	debug := true
+	debug := false
+
+	summaries := make(chan string, 10)
+	var wg sync.WaitGroup
+
 	for r := range record {
 		// logger.Println(lines[l])
+		// fmt.Printf("Processing PAF record with %d entries.\n", len(r))
+		wg.Add(1)
+		go func(rec []PafHit) {
+			defer wg.Done()
+			WaitRandomly(rec, summaries)
+		}(r)
+
 		if debug == true {
 			for l := range r {
 				fmt.Println(r[l].MappingQuality)
@@ -278,5 +304,15 @@ func main() {
 			}
 			fmt.Println()
 		}
+	}
+
+	// Close the summaries channel after all goroutines complete
+	go func() {
+		wg.Wait()
+		close(summaries)
+	}()
+
+	for s := range summaries {
+		fmt.Println(s)
 	}
 }
