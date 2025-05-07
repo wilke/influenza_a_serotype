@@ -64,13 +64,18 @@ type PafHit struct {
 type PafRecord []PafHit
 
 type PafScore struct {
-	PafHit
-	TotalReadLength      int
-	TotalAlignmentLength int
-	TotalMatches         int
-	ANI                  float64
-	AFI                  float64
-	AlignmentScore       float64
+	TotalReadLength       int
+	TotalAlignmentLength  int
+	TotalMatches          int
+	ANI                   float64
+	AFI                   float64
+	AlignmentScore        float64
+	Group                 string
+	Hits                  []*PafHit // List of Pointer to the original PafHit
+	Serotype              Serotype
+	QueryName             string
+	Segment               Segment
+	NumberOfContributions int
 }
 
 type Summary struct {
@@ -85,7 +90,7 @@ type Summary struct {
 }
 
 // final Assignment
-type Assignmnet struct {
+type Assignment struct {
 	Serotype          Serotype
 	QueryName         string
 	Summaries         []Summary
@@ -94,6 +99,8 @@ type Assignmnet struct {
 	Hits              int
 	SerotypeMap       map[Serotype]int
 }
+
+var logger *log.Logger
 
 // type Summary []SummaryEntry
 
@@ -104,10 +111,11 @@ type Assignmnet struct {
 
 func StreamPaf2Record(pafFile string) (<-chan string, <-chan []PafHit) {
 
+	logger.Println("Function StreamPaf2Record: Opening PAF file:", pafFile)
 	// Create a channel to send PafHit records
 	// This channel will be used to send batches of PafHit records
-	record := make(chan []PafHit, 10)
-	errorMessage := make(chan string, 1)
+	records := make(chan []PafHit, 10)
+	errorMessage := make(chan string)
 	// record chan []PafHit
 
 	// Open the PAF file
@@ -116,21 +124,24 @@ func StreamPaf2Record(pafFile string) (<-chan string, <-chan []PafHit) {
 	if err != nil {
 		log.Fatalln("Error opening PAF file:", err)
 		errorMessage <- fmt.Sprintf("Error opening PAF file: %s", err)
-		return errorMessage, record
+		return errorMessage, records
 	}
 	// defer file.Close()
 
 	go func() {
 		// Close the channel when done
-		defer close(record)
+		defer close(records)
 		defer close(errorMessage)
 		defer file.Close()
+
+		logger.Println("GO Streaming to record channel - START\n")
 
 		// Read the file line by line
 		var hits []PafHit
 		var lineCount int
 		var Qname string
 		scanner := bufio.NewScanner(file)
+		nrRecords := 0
 		for scanner.Scan() {
 			// Split the line into fields
 			line := scanner.Text()
@@ -141,18 +152,19 @@ func StreamPaf2Record(pafFile string) (<-chan string, <-chan []PafHit) {
 			// Split the line by tab
 			fields := strings.Split(line, "\t")
 			if len(fields) < 12 {
-				log.Printf("Skipping invalid PAF line: %s\n", line)
+				logger.Printf("Skipping invalid PAF line: %s\n", line)
 				continue
 			}
 
 			if Qname != fields[0] {
+				nrRecords++
 				// Print qname and line count
 				if debug && Qname != "" {
-					log.Printf("Processing Qname: %s, Line Count: %d\n", Qname, lineCount)
+					logger.Printf("Processing Qname: %s, Line Count: %d\n", Qname, lineCount)
 				}
 
 				if len(hits) > 0 {
-					record <- hits
+					records <- hits
 				}
 				// Reset hits for new Qname
 				hits = []PafHit{}
@@ -198,14 +210,15 @@ func StreamPaf2Record(pafFile string) (<-chan string, <-chan []PafHit) {
 
 		// Send the last batch of hits
 		if len(hits) > 0 {
-			log.Printf("Processing Qname: %s, Line Count: %d\n", Qname, lineCount)
-			record <- hits
+			logger.Printf("Processing Qname: %s, Line Count: %d\n", Qname, lineCount)
+			records <- hits
 		}
+		logger.Printf("GO Streaming to record channel (Records: %d) - DONE", nrRecords)
 	}()
 	// Close the channel to signal completion
 	// close(record)
-
-	return errorMessage, record
+	logger.Println("Function StreamPaf2Record - DONE")
+	return errorMessage, records
 }
 
 func LoadMappingFile(filename string) (mapping Mapping, err error) {
@@ -275,7 +288,6 @@ func LoadMappingFile(filename string) (mapping Mapping, err error) {
 			continue
 		}
 
-		// os.Exit(1)
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -347,126 +359,209 @@ func WaitRandomly(record []PafHit, summaries chan string) {
 
 }
 
-// Create a function which calculates the scores
+// Create a function which calculates the scores (old version)
+// func CalculateScores(records <-chan []PafHit, mapping Mapping) <-chan []PafScore {
+// 	scores := make(chan []PafScore, 10)
+// 	// Create a wait group to wait for all goroutines to finish
+// 	var wg sync.WaitGroup
+
+// 	numberOfTasks := 4
+// 	task := make(chan int, numberOfTasks)
+
+// 	// Calculate scores for each record
+// 	for record := range records {
+// 		task <- 1
+// 		wg.Add(1)
+// 		fmt.Printf("Summary for record %s\n", record[0].QueryName)
+// 		go func(record []PafHit) {
+// 			defer wg.Done()
+
+// 			// First goup by qname, tname, serotype, segment, strand
+// 			// Then calculate the scores for each group
+
+// 			groupsStrand := make(map[string][]PafHit)
+
+// 			for _, hit := range record {
+// 				mapped := mapping[Accession(hit.TargetName)]
+// 				key := fmt.Sprintf("%s_%s_%s_%s_%s", hit.QueryName, hit.TargetName, mapped.Serotype, mapped.Segment, hit.Strand)
+// 				groupsStrand[key] = append(groupsStrand[key], hit)
+// 			}
+// 			fmt.Printf("Groups in record %d\n", len(groupsStrand))
+
+// 			// For each group, calculate the scores
+// 			Scores := []PafScore{}
+
+// 			// Iterate over the groups
+// 			for key, group := range groupsStrand {
+// 				// Calculate the scores
+// 				fmt.Printf("Processing group %s\n", key)
+// 				var totalReadLength, totalAlignmentLength, totalMatches int
+
+// 				for _, hit := range group {
+// 					totalReadLength += hit.QueryLength
+// 					totalAlignmentLength += hit.AlignmentBlockLength
+// 					totalMatches += hit.NumResidueMatches
+// 				}
+
+// 				for _, hit := range group {
+// 					// Calculate the ANI
+// 					// ANI = (totalMatches / totalAlignmentLength) * 100
+// 					// AFI = (totalMatches / totalReadLength) * 100
+// 					// AlignmentScore = (totalMatches / totalAlignmentLength) * 100
+
+// 					ani := float64(totalMatches) / float64(totalAlignmentLength)
+// 					afi := float64(totalAlignmentLength) / float64(totalReadLength)
+// 					alignmentScore := float64(ani) * float64(afi)
+
+// 					Score := PafScore{
+// 						PafHit:               hit,
+// 						TotalReadLength:      totalReadLength,
+// 						TotalAlignmentLength: totalAlignmentLength,
+// 						TotalMatches:         totalMatches,
+// 						ANI:                  float64(totalMatches) / float64(totalAlignmentLength),
+// 						AFI:                  float64(totalAlignmentLength) / float64(totalReadLength),
+// 						AlignmentScore:       alignmentScore,
+// 					}
+// 					Scores = append(Scores, Score)
+// 				}
+
+// 				// Sort scores by alignment score
+// 				sort.Slice(Scores, func(i, j int) bool {
+// 					return Scores[i].AlignmentScore > Scores[j].AlignmentScore
+// 				})
+
+// 				// Get top two top scores
+// 				scoreList := map[float64][]PafScore{}
+// 				for _, score := range Scores {
+// 					scoreList[score.AlignmentScore] = append(scoreList[score.AlignmentScore], score)
+// 				}
+// 				// Sort the scores by alignment score
+// 				var topScores []float64
+// 				for k := range scoreList {
+// 					topScores = append(topScores, k)
+// 				}
+// 				// sort descending topScores
+// 				sort.Slice(topScores, func(i, j int) bool {
+// 					return topScores[i] > topScores[j]
+// 				})
+
+// 				// Get the top two scores
+// 				if len(topScores) > 2 {
+// 					topScores = topScores[:2]
+// 				} else {
+// 					topScores = topScores[:len(topScores)]
+// 				}
+
+// 				// Print the top scores
+// 				fmt.Printf("Top scores: %v\n", topScores)
+// 				// os.Exit(1)
+
+// 			}
+
+// 			<-task
+// 			scores <- Scores
+// 		}(record)
+// 	}
+
+// 	go func() {
+// 		wg.Wait()
+// 		close(scores)
+// 	}()
+
+// 	return scores
+// }
+
 func CalculateScores(records <-chan []PafHit, mapping Mapping) <-chan []PafScore {
-	scores := make(chan []PafScore, 10)
-	// Create a wait group to wait for all goroutines to finish
+
+	logger.Println("Function CalculateScores - START")
+	scores := make(chan []PafScore)
 	var wg sync.WaitGroup
-
 	numberOfTasks := 4
-	task := make(chan int, numberOfTasks)
 
-	// Calculate scores for each record
-	for record := range records {
-		task <- 1
+	for i := 0; i < numberOfTasks; i++ {
 		wg.Add(1)
-		fmt.Printf("Summary for record %s\n", record[0].QueryName)
-		go func(record []PafHit) {
+		go func() {
+			logger.Printf("GO Calculate Score (%d) for record - START\n", i)
 			defer wg.Done()
 
-			// First goup by qname, tname, serotype, segment, strand
-			// Then calculate the scores for each group
+			for record := range records {
+				// Use a map of pointers to avoid duplicating PafHit data
+				groupsStrand := make(map[string][]*PafHit)
 
-			groupsStrand := make(map[string][]PafHit)
+				// Store hits in a slice and use pointers in the map
+				hits := make([]PafHit, len(record))
+				copy(hits, record)
 
-			for _, hit := range record {
-				mapped := mapping[Accession(hit.TargetName)]
-				key := fmt.Sprintf("%s_%s_%s_%s_%s", hit.QueryName, hit.TargetName, mapped.Serotype, mapped.Segment, hit.Strand)
-				groupsStrand[key] = append(groupsStrand[key], hit)
-			}
-			fmt.Printf("Groups in record %d\n", len(groupsStrand))
-
-			// For each group, calculate the scores
-			Scores := []PafScore{}
-
-			// Iterate over the groups
-			for key, group := range groupsStrand {
-				// Calculate the scores
-				fmt.Printf("Processing group %s\n", key)
-				var totalReadLength, totalAlignmentLength, totalMatches int
-
-				for _, hit := range group {
-					totalReadLength += hit.QueryLength
-					totalAlignmentLength += hit.AlignmentBlockLength
-					totalMatches += hit.NumResidueMatches
+				for i := range hits {
+					hit := &hits[i]
+					mapped := mapping[Accession(hit.TargetName)]
+					key := fmt.Sprintf("%s_%s_%s_%s_%s", hit.QueryName, hit.TargetName, mapped.Serotype, mapped.Segment, hit.Strand)
+					groupsStrand[key] = append(groupsStrand[key], hit)
 				}
 
-				for _, hit := range group {
-					// Calculate the ANI
-					// ANI = (totalMatches / totalAlignmentLength) * 100
-					// AFI = (totalMatches / totalReadLength) * 100
-					// AlignmentScore = (totalMatches / totalAlignmentLength) * 100
+				// Pre-allocate the scores slice with capacity
+				scoresRecord := make([]PafScore, 0, len(record))
 
+				for key, group := range groupsStrand {
+					var totalReadLength, totalAlignmentLength, totalMatches int
+
+					// Calculate totals once per group
+					for _, hit := range group {
+						totalReadLength += hit.QueryLength
+						totalAlignmentLength += hit.AlignmentBlockLength
+						totalMatches += hit.NumResidueMatches
+					}
+
+					// Reuse calculations for all hits in the group
 					ani := float64(totalMatches) / float64(totalAlignmentLength)
 					afi := float64(totalAlignmentLength) / float64(totalReadLength)
-					alignmentScore := float64(ani) * float64(afi)
+					alignmentScore := ani * afi
 
-					Score := PafScore{
-						PafHit:               hit,
-						TotalReadLength:      totalReadLength,
-						TotalAlignmentLength: totalAlignmentLength,
-						TotalMatches:         totalMatches,
-						ANI:                  float64(totalMatches) / float64(totalAlignmentLength),
-						AFI:                  float64(totalAlignmentLength) / float64(totalReadLength),
-						AlignmentScore:       alignmentScore,
+					// Create scores with pointers to hits
+					score := PafScore{
+						Hits:                  []*PafHit{},
+						TotalReadLength:       totalReadLength,
+						TotalAlignmentLength:  totalAlignmentLength,
+						TotalMatches:          totalMatches,
+						ANI:                   ani,
+						AFI:                   afi,
+						AlignmentScore:        alignmentScore,
+						Group:                 key,
+						Serotype:              mapping[Accession(group[0].TargetName)].Serotype,
+						QueryName:             group[0].QueryName,
+						Segment:               mapping[Accession(group[0].TargetName)].Segment,
+						NumberOfContributions: len(group),
 					}
-					Scores = append(Scores, Score)
+					for _, hit := range group {
+						score.Hits = append(score.Hits, hit)
+					}
+					scoresRecord = append(scoresRecord, score)
 				}
 
-				// Sort scores by alignment score
-				sort.Slice(Scores, func(i, j int) bool {
-					return Scores[i].AlignmentScore > Scores[j].AlignmentScore
-				})
-
-				// Get top two top scores
-				scoreList := map[float64][]PafScore{}
-				for _, score := range Scores {
-					scoreList[score.AlignmentScore] = append(scoreList[score.AlignmentScore], score)
-				}
-				// Sort the scores by alignment score
-				var topScores []float64
-				for k := range scoreList {
-					topScores = append(topScores, k)
-				}
-				// sort descending topScores
-				sort.Slice(topScores, func(i, j int) bool {
-					return topScores[i] > topScores[j]
-				})
-
-				// Get the top two scores
-				if len(topScores) > 2 {
-					topScores = topScores[:2]
-				} else {
-					topScores = topScores[:len(topScores)]
-				}
-
-				// Print the top scores
-				fmt.Printf("Top scores: %v\n", topScores)
-				// os.Exit(1)
-
+				// logger.Printf("GO Number of scores: %d\n", len(scoresRecord))
+				scores <- scoresRecord
 			}
+			logger.Printf("GO Calculate Score (%d) for record - DONE\n", i)
 
-			scores <- Scores
-			<-task
-		}(record)
+		}()
 	}
 
 	go func() {
 		wg.Wait()
 		close(scores)
 	}()
-
+	logger.Println("Function CalculateScores - DONE")
 	return scores
 }
 
-func AssignSerotype(scoreRecords <-chan []PafScore, mapping Mapping, topScoreThreshold float64, scoreDistance float64) <-chan Assignmnet {
+func AssignSerotype(scoreRecords <-chan []PafScore, mapping Mapping, topScoreThreshold float64, scoreDistance float64) <-chan Assignment {
+	logger.Println("Function AssignSerotype - START")
 
-	assignments := make(chan Assignmnet, 10)
+	assignments := make(chan Assignment)
 	wg := sync.WaitGroup{}
 
-	for scoreRecord := range scoreRecords {
-
-		// summary := make(Summary, 0)
+	nrProcessors := 4
+	for i := 0; i < nrProcessors; i++ {
 
 		// Compute top alignmnet score and average alignment score
 		// for each group of qname, serotype, segment in the []PafScore
@@ -474,127 +569,134 @@ func AssignSerotype(scoreRecords <-chan []PafScore, mapping Mapping, topScoreThr
 		go func() {
 
 			defer wg.Done()
-			groupsSegment := make(map[string][]PafScore)
-			for _, score := range scoreRecord {
-				mapped := mapping[Accession(score.PafHit.TargetName)]
-				key := fmt.Sprintf("%s_%s_%s", score.PafHit.QueryName, mapped.Serotype, mapped.Segment)
-				groupsSegment[key] = append(groupsSegment[key], score)
-			}
+			logger.Printf("GO Assign Serotype (%d) - START\n", i)
+			for scoreRecord := range scoreRecords {
+				groupsSegment := make(map[string][]PafScore)
+				for _, score := range scoreRecord {
+					mapped := mapping[Accession(score.Hits[0].TargetName)]
+					key := fmt.Sprintf("%s_%s_%s", score.Hits[0].QueryName, mapped.Serotype, mapped.Segment)
+					groupsSegment[key] = append(groupsSegment[key], score)
+				}
 
-			summaries := make([]Summary, 0)
-			// For each group, calculate max and average alignment score
-			for key, group := range groupsSegment {
-				var summaryForGroup Summary
-				var totalAlignmentScore float64
-				var maxAlignmentScore float64
-				var avgAlignmentScore float64
+				summaries := make([]Summary, 0)
+				// For each group, calculate max and average alignment score
+				for key, group := range groupsSegment {
+					var summaryForGroup Summary
+					var totalAlignmentScore float64
+					var maxAlignmentScore float64
+					var avgAlignmentScore float64
 
-				// Set groupedBy to the key
-				summaryForGroup.groupedBy = key
-				summaryForGroup.Serotype = mapping[Accession(group[0].PafHit.TargetName)].Serotype
-				summaryForGroup.Segment = mapping[Accession(group[0].PafHit.TargetName)].Segment
-				summaryForGroup.QueryName = group[0].PafHit.QueryName
-				summaryForGroup.NumberOfContributions = len(group)
+					// Set groupedBy to the key
+					summaryForGroup.groupedBy = key
+					summaryForGroup.Serotype = mapping[Accession(group[0].Hits[0].TargetName)].Serotype
+					summaryForGroup.Segment = mapping[Accession(group[0].Hits[0].TargetName)].Segment
+					summaryForGroup.QueryName = group[0].Hits[0].QueryName
+					summaryForGroup.NumberOfContributions = len(group)
 
-				// Calculate the max and average alignment score
-				for _, score := range group {
-					totalAlignmentScore += score.AlignmentScore
-					if score.AlignmentScore > maxAlignmentScore {
-						maxAlignmentScore = score.AlignmentScore
+					// Calculate the max and average alignment score
+					for _, score := range group {
+						totalAlignmentScore += score.AlignmentScore
+						if score.AlignmentScore > maxAlignmentScore {
+							maxAlignmentScore = score.AlignmentScore
+						}
+					}
+					summaryForGroup.scores = group
+					avgAlignmentScore = totalAlignmentScore / float64(len(group))
+					summaryForGroup.maxAlignmentScore = maxAlignmentScore
+					summaryForGroup.avgAlignmentScore = avgAlignmentScore
+
+					// fmt.Printf("Group %s | %s: Max Alignment Score: %f, Avg Alignment Score: %f\t%v\n", key,
+					// 	summaryForGroup.QueryName,
+					// 	summaryForGroup.maxAlignmentScore,
+					// 	summaryForGroup.avgAlignmentScore,
+					// 	summaryForGroup.NumberOfContributions)
+					summaries = append(summaries, summaryForGroup)
+
+				}
+
+				// Print number of groups and number of summaries
+				// fmt.Printf("Number of groups: %d, Number of summaries: %d\n", len(groupsSegment), len(summaries))
+
+				// Sort by top scores, get top 2 unique scores
+				sort.Slice(summaries, func(i, j int) bool {
+					return summaries[i].maxAlignmentScore > summaries[j].maxAlignmentScore
+				})
+
+				// for i, summary := range summaries {
+				// 	fmt.Printf("Summary %d: %s\t%f\t%f\n", i, summary.QueryName, summary.maxAlignmentScore, summary.avgAlignmentScore)
+				// }
+
+				topScores := GetNTopScores(summaries, 2)
+				// fmt.Printf("Top scores: %v\n", topScores)
+
+				// Limit the top scores to only scores within scoreDistance interval
+				maxScore := topScores[0]
+				if len(topScores) > 1 {
+					// Remove scores which are not within the scoreDistance
+					for i := 1; i < len(topScores); i++ {
+						if topScores[i] < maxScore-scoreDistance {
+							topScores = topScores[:i]
+							logger.Printf("Top scores after filtering: %v\n", topScores)
+							break
+						}
 					}
 				}
-				summaryForGroup.scores = group
-				avgAlignmentScore = totalAlignmentScore / float64(len(group))
-				summaryForGroup.maxAlignmentScore = maxAlignmentScore
-				summaryForGroup.avgAlignmentScore = avgAlignmentScore
+				// fmt.Printf("Top scores interval: %v\n", topScores)
 
-				fmt.Printf("Group %s | %s: Max Alignment Score: %f, Avg Alignment Score: %f\t%v\n", key,
-					summaryForGroup.QueryName,
-					summaryForGroup.maxAlignmentScore,
-					summaryForGroup.avgAlignmentScore,
-					summaryForGroup.NumberOfContributions)
-				summaries = append(summaries, summaryForGroup)
-				// os.Exit(1)
-			}
+				// Get the top scores within the scoreDistance
 
-			// Print number of groups and number of summaries
-			fmt.Printf("Number of groups: %d, Number of summaries: %d\n", len(groupsSegment), len(summaries))
+				topSummariesForScores, serotypeMap := GetSummariesByScore(summaries, topScores)
+				// fmt.Printf("Top summaries for scores: %v\n", len(topSummariesForScores))
 
-			// Sort by top scores, get top 2 unique scores
-			sort.Slice(summaries, func(i, j int) bool {
-				return summaries[i].maxAlignmentScore > summaries[j].maxAlignmentScore
-			})
-
-			for i, summary := range summaries {
-				fmt.Printf("Summary %d: %s\t%f\t%f\n", i, summary.QueryName, summary.maxAlignmentScore, summary.avgAlignmentScore)
-			}
-
-			topScores := GetNTopScores(summaries, 2)
-			fmt.Printf("Top scores: %v\n", topScores)
-
-			// Limit the top scores to only scores within scoreDistance interval
-			maxScore := topScores[0]
-			if len(topScores) > 2 {
-				// Remove scores which are not within the scoreDistance
-				for i := 1; i < len(topScores); i++ {
-					if topScores[i] < maxScore-scoreDistance {
-						topScores = topScores[:i]
-						break
-					}
+				if topScores[0] < topScoreThreshold {
+					fmt.Printf("Group %s: No serotype assigned. Score %v below threshold %v\n", topSummariesForScores[0].QueryName, topScores[0], topScoreThreshold)
+					continue
 				}
+
+				// Scores are above threshold and within the scoreDistance
+				// Check if there are multiple unique serotypes, if so, assign "ambiguous"
+
+				serotypeList := make([]Serotype, 0)
+				for s := range serotypeMap {
+					serotypeList = append(serotypeList, s)
+				}
+				assignment := Assignment{}
+				assignment.QueryName = topSummariesForScores[0].QueryName
+				assignment.Summaries = topSummariesForScores
+				assignment.AlignmentScore = topScores[0]
+				assignment.AvgAlignmentScore = topSummariesForScores[0].avgAlignmentScore
+				assignment.SerotypeMap = serotypeMap
+				// Hits is the sum over all PafScore
+				for _, summary := range topSummariesForScores {
+					assignment.Hits += len(summary.scores)
+				}
+
+				// Assign the serotype
+				if len(serotypeList) > 1 {
+					fmt.Printf("Group %s: Multiple serotypes found: %v\n", topSummariesForScores[0].QueryName, serotypeList)
+					assignment.Serotype = "ambiguous"
+				} else {
+					// Get the serotype
+					fmt.Printf("Group %s: Serotype: %s\n", topSummariesForScores[0].QueryName, serotypeList[0])
+					assignment.Serotype = serotypeList[0]
+				}
+				assignments <- assignment
 			}
-			fmt.Printf("Top scores interval: %v\n", topScores)
-
-			// Get the top scores within the scoreDistance
-
-			topSummariesForScores, serotypeMap := GetSummariesByScore(summaries, topScores)
-			fmt.Printf("Top summaries for scores: %v\n", len(topSummariesForScores))
-
-			if topScores[0] < topScoreThreshold {
-				fmt.Printf("Group %s: No serotype assigned. Score %d below threshold %d\n", topSummariesForScores[0].QueryName, topScores[0], topScoreThreshold)
-				return
-			}
-
-			// Scores are above threshold and within the scoreDistance
-			// Check if there are multiple unique serotypes, if so, assign "ambiguous"
-
-			serotypeList := make([]Serotype, 0)
-			for s := range serotypeMap {
-				serotypeList = append(serotypeList, s)
-			}
-			assignment := Assignmnet{}
-			assignment.QueryName = topSummariesForScores[0].QueryName
-			assignment.Summaries = topSummariesForScores
-			assignment.AlignmentScore = topScores[0]
-			assignment.AvgAlignmentScore = topSummariesForScores[0].avgAlignmentScore
-			assignment.SerotypeMap = serotypeMap
-			// Hits is the sum over all PafScore
-			for _, summary := range topSummariesForScores {
-				assignment.Hits += len(summary.scores)
-			}
-
-			// Assign the serotype
-			if len(serotypeList) > 1 {
-				fmt.Printf("Group %s: Multiple serotypes found: %v\n", topSummariesForScores[0].QueryName, serotypeList)
-				assignment.Serotype = "ambiguous"
-			} else {
-				// Get the serotype
-				fmt.Printf("Group %s: Serotype: %s\n", topSummariesForScores[0].QueryName, serotypeList[0])
-				assignment.Serotype = serotypeList[0]
-			}
-			assignments <- assignment
+			logger.Println("GO Assign Serotype - DONE")
 		}()
 	}
 
 	go func() {
 		wg.Wait()
+		logger.Println("All goroutines finished")
 		close(assignments)
 	}()
-
+	logger.Println("Function AssignSerotype - DONE")
 	return assignments
 }
 
-func exportAssignmnetsToFile(assignments <-chan Assignmnet, outputDir string) {
+func exportAssignmentsToFile(assignments <-chan Assignment, outputDir string, wg *sync.WaitGroup) {
+	logger.Println("Function exportAssignmentsToFile - START")
 
 	// Create one output file for each distinct serotype
 	// Create a map of serotypes to file handles
@@ -629,10 +731,13 @@ func exportAssignmnetsToFile(assignments <-chan Assignmnet, outputDir string) {
 			log.Fatalln("Error closing file:", err)
 		}
 	}
+	logger.Println("Function exportAssignmentsToFile - DONE")
+	wg.Done()
 }
 
-func makeGlobalSummary(assignments <-chan Assignmnet, outputDir string) {
+func makeGlobalSummary(assignments <-chan Assignment, outputDir string, wg *sync.WaitGroup) {
 	// Create a global summary file
+	logger.Println("Function makeGlobalSummary - START")
 	fileName := fmt.Sprintf("%s/global_summary.txt", outputDir)
 	file, err := os.Create(fileName)
 	if err != nil {
@@ -660,24 +765,30 @@ func makeGlobalSummary(assignments <-chan Assignmnet, outputDir string) {
 			log.Fatalln("Error writing to file:", err)
 		}
 	}
+	logger.Println("Function makeGlobalSummary - DONE")
+	wg.Done()
 }
 
 func main() {
 
 	// Initialize logger
-	logger := log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
+	logger = log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
 
 	var (
-		pafFile     string
-		mappingFile string
-		outputDir   string
-		numWorkers  int
+		pafFile           string
+		mappingFile       string
+		outputDir         string
+		numWorkers        int
+		scoreDistance     float64
+		topScoreThreshold float64
 	)
 
 	flag.StringVar(&pafFile, "paf", "", "Path to the input PAF file")
 	flag.StringVar(&mappingFile, "mapping-file", "", "Path to the serotype mapping file")
 	flag.StringVar(&outputDir, "output", "./", "Path to the output directory")
 	flag.IntVar(&numWorkers, "workers", 1, "Number of workers to use for processing")
+	flag.Float64Var(&scoreDistance, "score-distance", 0.003, "Score distance for filtering top scores")
+	flag.Float64Var(&topScoreThreshold, "top-score-threshold", 0.9, "Top score threshold for filtering assignments")
 
 	flag.Parse()
 
@@ -705,18 +816,23 @@ func main() {
 	}()
 
 	scores := CalculateScores(records, mapping)
-	assignments := AssignSerotype(scores, mapping, 0.8, 0.003)
+	logger.Println("Calculated scores successfully")
+	assignments := AssignSerotype(scores, mapping, topScoreThreshold, scoreDistance)
+	logger.Println("Assigned serotypes successfully")
 
-	toFile := make(chan Assignmnet)
-	assignmentsToCounts := make(chan Assignmnet)
+	toFile := make(chan Assignment, 100)
+	assignmentsToCounts := make(chan Assignment, 100)
 
-	go exportAssignmnetsToFile(toFile, outputDir)
-	go makeGlobalSummary(assignmentsToCounts, outputDir)
+	finalWg := sync.WaitGroup{}
 
+	go exportAssignmentsToFile(toFile, outputDir, &finalWg)
+	go makeGlobalSummary(assignmentsToCounts, outputDir, &finalWg)
+
+	nrAssignments := 0
 	for assignment := range assignments {
-
+		nrAssignments++
 		logger.Printf("Assignment: %v\t%v\t%v\t%v\n", assignment.QueryName, assignment.Serotype, len(assignment.Summaries), assignment.Hits)
-		logger.Printf("Assignment Serotype Map: %v\n", assignment.SerotypeMap)
+		// logger.Printf("Assignment Serotype Map: %v\n", assignment.SerotypeMap)
 
 		toFile <- assignment
 		assignmentsToCounts <- assignment
@@ -725,5 +841,8 @@ func main() {
 
 	close(toFile)
 	close(assignmentsToCounts)
+	logger.Printf("Number of assignments: %d\n", nrAssignments)
+	// Wait for all goroutines to finish
+	finalWg.Wait()
 
 }
