@@ -11,7 +11,7 @@ import random
 import string
 import re
 import logging
-from distutils.spawn import find_executable
+from shutil import which as find_executable
 
 ####### ####### this tool's functions ####### ####### 
 ####### ####### ##################### ####### ####### 
@@ -137,7 +137,7 @@ def grep_reads(rname_file: str, reads: str, sero_reads: str, cpus: str):
 
 def is_tool(name):
     """Check whether `name` is on PATH."""
-    from distutils.spawn import find_executable
+    from shutil import which as find_executable
     return find_executable(name) is not None
 
 ####### ####### ##################### ####### ####### 
