@@ -6,6 +6,10 @@ DBs/
 
 filter_seqs/
 
+# Go binaries
+src/paf2serotypes/paf2serotypes
+src/myPaf2Serotypes/myPaf2Serotypes
+*.exe
 
 ## python
 # Byte-compiled / optimized / DLL files

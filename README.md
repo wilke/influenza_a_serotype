@@ -126,16 +126,16 @@ Note: I'm working on getting a more complete database, as I think there is relev
 1) Add Influenza B, C, and D
 
 
-# Execution Scripts
+# Running R and Go Implementations
 
-This repository includes several scripts to run and compare the R and Go implementations of the influenza A serotype analysis:
+This repository includes both R and Go implementations of the influenza A serotype analysis. You can run and compare them using the following commands:
 
-## run_original_r.sh
+## Running the R Implementation
 
-This script runs the original R implementation:
+To run the original R implementation directly:
 
 ```bash
-./run_original_r.sh <flu_db> <paf> <sample> <outdir> <score_thresh>
+Rscript src/iav_serotype/parse_pafs_influenza_A.R <flu_db> <paf> <sample> <outdir> <score_thresh>
 ```
 
 Parameters:
@@ -147,65 +147,80 @@ Parameters:
 
 Example:
 ```bash
-./run_original_r.sh DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
+Rscript src/iav_serotype/parse_pafs_influenza_A.R DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
 ```
 
-## run_go.sh
+## Running the Go Implementation
 
-This script builds and runs the Go implementation:
+First, build the Go implementation:
 
 ```bash
-./run_go.sh <flu_db> <paf> <sample> <outdir> <score_thresh>
+cd src/paf2serotypes
+go build
+cd ../..
 ```
 
-Parameters:
-- `<flu_db>`: Path to the influenza mapping file (e.g., DBs/v1.25/Influenza_A_segment_info1.tsv)
-- `<paf>`: Path to the PAF file to process
-- `<sample>`: Sample name for output files
-- `<outdir>`: Output directory for results
-- `<score_thresh>`: Score threshold for assignments (e.g., 0.8)
-
-Example:
-```bash
-./run_go.sh DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
-```
-
-## compare.sh
-
-This script compares the outputs of the R and Go implementations:
+Then run it with the R-compatible algorithm:
 
 ```bash
-./compare.sh <outdir> <sample>
+./src/paf2serotypes/paf2serotypes process --r-algorithm \
+  --mapping DBs/v1.25/Influenza_A_segment_info1.tsv \
+  --paf test_data/small_test.paf \
+  --sample test_sample \
+  --output test_output \
+  --min-score 0.8
 ```
 
-Parameters:
-- `<outdir>`: Output directory containing results from both implementations
-- `<sample>`: Sample name used for the output files
+## Comparing Implementations
 
-Example:
+The Go implementation includes built-in comparison functionality:
+
 ```bash
-./compare.sh test_output test_sample
+./src/paf2serotypes/paf2serotypes compare \
+  --paf test_data/small_test.paf \
+  --mapping DBs/v1.25/Influenza_A_segment_info1.tsv \
+  --sample test_sample \
+  --output test_output \
+  --min-score 0.8 \
+  --r-script src/iav_serotype/parse_pafs_influenza_A.R \
+  --report-file comparison_report.json
 ```
 
-Note: Before running the comparison script, you need to run both the R and Go implementations first.
+## Benchmarking Performance
+
+To benchmark both implementations:
+
+```bash
+./src/paf2serotypes/paf2serotypes benchmark \
+  --paf test_data/small_test.paf \
+  --mapping DBs/v1.25/Influenza_A_segment_info1.tsv \
+  --sample test_sample \
+  --output test_output \
+  --min-score 0.8 \
+  --r-script src/iav_serotype/parse_pafs_influenza_A.R \
+  --iterations 5 \
+  --report-file benchmark_report.json
+```
 
 ## Workflow Example
 
 To run a complete analysis and comparison:
 
-1. Run the original R implementation:
+1. Build the Go implementation:
 ```bash
-./run_original_r.sh DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
+cd src/paf2serotypes && go build && cd ../..
 ```
 
-2. Run the Go implementation:
+2. Run and compare both implementations:
 ```bash
-./run_go.sh DBs/v1.25/Influenza_A_segment_info1.tsv test_data/small_test.paf test_sample test_output 0.8
+./src/paf2serotypes/paf2serotypes compare \
+  --paf test_data/small_test.paf \
+  --mapping DBs/v1.25/Influenza_A_segment_info1.tsv \
+  --sample test_sample \
+  --output test_output \
+  --min-score 0.8 \
+  --r-script src/iav_serotype/parse_pafs_influenza_A.R \
+  --report-file test_output/comparison_report.json
 ```
 
-3. Compare the results:
-```bash
-./compare.sh test_output test_sample
-```
-
-The comparison will generate a detailed report in JSON format and display a summary of the performance and output differences between the two implementations.
+The comparison will generate a detailed JSON report showing performance metrics and any output differences between the two implementations.
