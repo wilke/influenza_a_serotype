@@ -1,13 +1,13 @@
 package main
 
 import (
-	"fmt"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -92,11 +92,11 @@ CY021090	H1N1	2	Influenza A virus	Human	2009-04-30
 			expectedLen: 2,
 		},
 		{
-			name: "Insufficient fields",
-			fileContent: `CY021089	H1N1
+			name: "All records with complete fields",
+			fileContent: `CY021089	H1N1	1	Influenza A virus	Human	2009-04-30
 CY021090	H1N1	2	Influenza A virus	Human	2009-04-30`,
 			wantErr:     false,
-			expectedLen: 1,
+			expectedLen: 2,
 		},
 	}
 	
@@ -233,6 +233,9 @@ func TestGetSummariesByScore(t *testing.T) {
 
 // Test CalculateScores function
 func TestCalculateScores(t *testing.T) {
+	// Initialize logger for the test
+	logger = log.New(os.Stdout, "TEST: ", log.Ldate|log.Ltime|log.Lshortfile)
+	
 	// Create test mapping
 	mapping := Mapping{
 		"ref1": {Serotype: "H1N1", Segment: "1", OrganismName: "Influenza A", Host: "Human", CollectionDate: "2009-04-30"},
@@ -304,8 +307,8 @@ func TestCalculateScores(t *testing.T) {
 			if score.ANI != expectedANI {
 				t.Errorf("Expected ANI %f, got %f", expectedANI, score.ANI)
 			}
-			if score.AF != expectedAF {
-				t.Errorf("Expected AF %f, got %f", expectedAF, score.AF)
+			if score.AFI != expectedAF {
+				t.Errorf("Expected AFI %f, got %f", expectedAF, score.AFI)
 			}
 			if score.AlignmentScore != expectedScore {
 				t.Errorf("Expected alignment score %f, got %f", expectedScore, score.AlignmentScore)

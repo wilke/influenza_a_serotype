@@ -134,7 +134,7 @@ func StreamPaf2Record(pafFile string) (<-chan string, <-chan []PafHit) {
 		defer close(errorMessage)
 		defer file.Close()
 
-		logger.Println("GO Streaming to record channel - START\n")
+		logger.Println("GO Streaming to record channel - START")
 
 		// Read the file line by line
 		var hits []PafHit
